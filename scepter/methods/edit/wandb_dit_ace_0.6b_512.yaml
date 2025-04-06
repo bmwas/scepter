@@ -165,7 +165,7 @@ SOLVER:
 
     # ---------------- LR & validation tracking ------------ 
     - {NAME: WandbLrHook,         LOG_LR_SCHEDULE: True, PRIORITY: 200}     # :contentReference[oaicite:1]{index=1}
-    - {NAME: WandbValLossHook,    VAL_INTERVAL: 100,      PRIORITY: 200}    # :contentReference[oaicite:2]{index=2}
+    - {NAME: WandbValLossHook,    VAL_INTERVAL: 100,      PRIORITY: 200, DATA: {}}    # :contentReference[oaicite:2]{index=2}
 
     # ---------------- images / probe data -----------------
     - {NAME: ProbeDataHook,       PROB_INTERVAL: 100}                        # keeps local saves
@@ -177,4 +177,3 @@ SOLVER:
 
     # ---------------- fine‑grained param stats (optional) -
     - {NAME: ParameterTrackerHook, TRACK_INTERVAL: 10, PRIORITY: 90}         # :contentReference[oaicite:5]{index=5}
-
