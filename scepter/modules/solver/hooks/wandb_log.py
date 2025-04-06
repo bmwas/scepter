@@ -326,25 +326,35 @@ class WandbLogHook(Hook):
                         if isinstance(avg_loss, torch.Tensor):
                             avg_loss = avg_loss.item()
                             
-                        # Log both current and average loss
+                        # Log both current and average loss - use simple keys for main charts
                         if current_loss is not None:
-                            # Log loss directly at the root level for better visibility in plots
+                            # Root level metrics for primary charts 
                             wandb_metrics[key] = current_loss
-                            wandb_metrics[f"{key}_avg"] = avg_loss if avg_loss is not None else current_loss
+                            if avg_loss is not None:
+                                wandb_metrics[f"{key}_avg"] = avg_loss
                             
-                            # Also log with prefixes for organization
-                            wandb_metrics[f"{solver.mode}/iter/{key}"] = current_loss
+                            # Log with mode prefix for organization
+                            wandb_metrics[f"{solver.mode}/{key}"] = current_loss
                             wandb_metrics[f"{solver.mode}/{key}/current"] = current_loss
+                            
+                            # Log exact format shown in console (e.g., "0.0370(0.0917)")
+                            if avg_loss is not None:
+                                wandb_metrics[f"{solver.mode}/{key}/formatted"] = f"{current_loss:.4f}({avg_loss:.4f})"
+                        
                         if avg_loss is not None:
                             wandb_metrics[f"{solver.mode}/{key}/average"] = avg_loss
                     else:
                         # Handle scalar loss
                         if isinstance(value, torch.Tensor):
                             value = value.item()
-                        # Log loss directly at the root level
-                        wandb_metrics[key] = value
-                        wandb_metrics[f"{solver.mode}/iter/{key}"] = value
                         
+                        # Log loss at root level for primary charts
+                        wandb_metrics[key] = value
+                        
+                        # Also log with prefixes for organization
+                        wandb_metrics[f"{solver.mode}/{key}"] = value
+                        wandb_metrics[f"{solver.mode}/{key}/current"] = value
+                
                 # Handle other metrics
                 elif isinstance(value, list) and len(value) >= 2:
                     # For metrics with current and average values
@@ -358,12 +368,16 @@ class WandbLogHook(Hook):
                         avg_val = avg_val.item()
 
                     # Log both current and average values
-                    wandb_metrics[f"{solver.mode}/iter/{key}"] = current_val
-                    wandb_metrics[f"{solver.mode}/iter/{key}_avg"] = avg_val
+                    wandb_metrics[f"{key}"] = current_val  # Root level for main charts
+                    wandb_metrics[f"{key}_avg"] = avg_val  # Root level for main charts
                     
                     # Also log with hierarchical naming for better organization
+                    wandb_metrics[f"{solver.mode}/{key}"] = current_val
                     wandb_metrics[f"{solver.mode}/{key}/current"] = current_val
                     wandb_metrics[f"{solver.mode}/{key}/average"] = avg_val
+                    
+                    # Formatted version for reference
+                    wandb_metrics[f"{solver.mode}/{key}/formatted"] = f"{current_val:.4f}({avg_val:.4f})"
                 else:
                     # For simple metrics
                     if isinstance(value, torch.Tensor):
@@ -385,8 +399,8 @@ class WandbLogHook(Hook):
 
                     # Log the value
                     if isinstance(value, (int, float, np.number)) or (isinstance(value, torch.Tensor) and value.numel() == 1):
-                        wandb_metrics[f"{solver.mode}/iter/{key}"] = value
-
+                        wandb_metrics[key] = value  # Root level for main chart
+                        wandb_metrics[f"{solver.mode}/{key}"] = value  # With prefix for organization
             # Log learning rates if available
             if hasattr(solver, 'optimizer') and solver.optimizer is not None:
                 for i, param_group in enumerate(solver.optimizer.param_groups):
