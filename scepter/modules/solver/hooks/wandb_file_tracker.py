@@ -938,21 +938,27 @@ class WandbFileTrackerHook(Hook):
             
             # Get all files in the directory
             all_files = []
+            all_dirs = []  # Track directories as well
             new_files_found = 0
+            new_dirs_found = 0
             
             # Walk through the directory
             try:
                 for root, dirs, files in self._walk_fs(self.cache_save_data_dir):
                     # Skip excluded directories
-                    dirs[:] = [d for d in dirs if not any(pattern in d for pattern in self.exclude_patterns)]
+                    dirs_to_process = [d for d in dirs if not any(pattern in d for pattern in self.exclude_patterns)]
                     
-                    # Process files
-                    for file in files:
-                        # Get file extension
-                        _, ext = os.path.splitext(file)
-                        if ext.lower() not in self.file_extensions:
+                    # Process directories themselves - track them as artifacts
+                    for dir_name in dirs_to_process:
+                        dir_path = os.path.join(root, dir_name)
+                        # Skip if already tracked
+                        if dir_path in self.tracked_files:
                             continue
-                        
+                        # Add to the list of directories to process
+                        all_dirs.append(dir_path)
+                    
+                    # Process ALL files in cache/save_data directory regardless of extension
+                    for file in files:
                         # Full path to the file
                         file_path = os.path.join(root, file)
                         
@@ -964,7 +970,7 @@ class WandbFileTrackerHook(Hook):
                         if any(pattern in file_path for pattern in self.exclude_patterns):
                             continue
                             
-                        # Add to the list of files to process
+                        # Add to the list of files to process - ALL files in cache/save_data, not just specific extensions
                         all_files.append(file_path)
             except Exception as e:
                 solver.logger.warning(f"Error walking cache/save_data directory: {e}")
@@ -974,6 +980,18 @@ class WandbFileTrackerHook(Hook):
                 all_files.sort(key=lambda x: os.path.getmtime(x) if os.path.exists(x) else 0, reverse=True)
             except Exception as e:
                 solver.logger.warning(f"Error sorting cache/save_data files by modification time: {e}")
+                
+            # Process each directory
+            for dir_path in all_dirs:
+                try:
+                    # Track the directory as an artifact
+                    self._track_cache_directory(dir_path, solver)
+                    
+                    # Mark as tracked
+                    self.tracked_files.add(dir_path)
+                    new_dirs_found += 1
+                except Exception as e:
+                    solver.logger.warning(f"Error tracking cache/save_data directory {dir_path}: {e}")
                 
             # Process each file
             for file_path in all_files:
@@ -999,15 +1017,16 @@ class WandbFileTrackerHook(Hook):
             # Update last check time
             self.last_cache_check_time = current_time
             
-            # Log summary if new files were found
-            if new_files_found > 0:
+            # Log summary if new files or directories were found
+            if new_files_found > 0 or new_dirs_found > 0:
                 # Log to console
-                solver.logger.info(f"WandbFileTrackerHook: Found {new_files_found} new files in cache/save_data directory")
+                solver.logger.info(f"WandbFileTrackerHook: Found {new_files_found} new files and {new_dirs_found} new directories in cache/save_data directory")
                 
                 # Log metrics to wandb for tracking
                 self.wandb_run.log({
                     "cache_save_data/files_tracked": len(self.tracked_files),
                     "cache_save_data/new_files_count": new_files_found,
+                    "cache_save_data/new_dirs_count": new_dirs_found,
                     "cache_save_data/last_scan_time": current_time,
                     "cache_save_data/iteration": solver.total_iter
                 }, step=solver.total_iter)
@@ -1021,6 +1040,42 @@ class WandbFileTrackerHook(Hook):
                 
         except Exception as e:
             solver.logger.warning(f"Error scanning cache/save_data directory: {e}")
+            
+    def _track_cache_directory(self, dir_path, solver):
+        """Track a directory in the cache/save_data folder as an artifact.
+        
+        Args:
+            dir_path: Path to the directory
+            solver: The solver instance
+        """
+        try:
+            # Ensure we have a cache/save_data artifact
+            if self.cache_save_data_artifact is None:
+                self._initialize_cache_save_data_artifact()
+            
+            # Add the directory as an artifact with metadata
+            self.cache_save_data_artifact.add_dir(
+                dir_path, 
+                name=os.path.relpath(dir_path, self.cache_save_data_dir)
+            )
+            
+            # Add metadata
+            metadata = {
+                "type": "directory",
+                "tracked_at": time.time(),
+                "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                "epoch": solver.epoch if hasattr(solver, 'epoch') else 0,
+                "relative_path": os.path.relpath(dir_path, self.cache_save_data_dir),
+            }
+            
+            # Store metadata
+            self.tracked_file_metadata[dir_path] = metadata
+            
+            # Log info
+            solver.logger.info(f"WandbFileTrackerHook: Tracking directory in cache/save_data: {dir_path}")
+            
+        except Exception as e:
+            solver.logger.warning(f"Error tracking cache directory {dir_path}: {e}")
 
     def _track_cache_save_data_file(self, file_path, solver):
         """Track a file from the cache/save_data directory.
@@ -1230,21 +1285,26 @@ class WandbFileTrackerHook(Hook):
             
             # Get all files in the directory
             all_files = []
+            all_dirs = []  # Track directories as well
             file_count_before = len(self.tracked_files)
             
             # Walk through the directory
             try:
                 for root, dirs, files in self._walk_fs(directory):
                     # Skip excluded directories
-                    dirs[:] = [d for d in dirs if not any(pattern in d for pattern in self.exclude_patterns)]
+                    dirs_to_process = [d for d in dirs if not any(pattern in d for pattern in self.exclude_patterns)]
                     
-                    # Process files
-                    for file in files:
-                        # Check extension
-                        _, ext = os.path.splitext(file)
-                        if ext.lower() not in self.file_extensions:
+                    # Process directories themselves - track them as artifacts
+                    for dir_name in dirs_to_process:
+                        dir_path = os.path.join(root, dir_name)
+                        # Skip if already tracked
+                        if dir_path in self.tracked_files:
                             continue
-                            
+                        # Add to the list of directories to process
+                        all_dirs.append(dir_path)
+                    
+                    # Process ALL files in cache/save_data directory regardless of extension
+                    for file in files:
                         # Full path to the file
                         file_path = os.path.join(root, file)
                         
@@ -1256,7 +1316,7 @@ class WandbFileTrackerHook(Hook):
                         if any(pattern in file_path for pattern in self.exclude_patterns):
                             continue
                             
-                        # Add to the list of files to process
+                        # Add to the list of files to process - ALL files in cache/save_data, not just specific extensions
                         all_files.append(file_path)
             except Exception as e:
                 solver.logger.warning(f"Error walking directory {directory}: {e}")
@@ -1267,6 +1327,17 @@ class WandbFileTrackerHook(Hook):
             except Exception as e:
                 solver.logger.warning(f"Error sorting files by modification time: {e}")
             
+            # Track each directory
+            for dir_path in all_dirs:
+                try:
+                    # Track the directory as an artifact
+                    self._track_cache_directory(dir_path, solver)
+                    
+                    # Mark as tracked
+                    self.tracked_files.add(dir_path)
+                except Exception as e:
+                    solver.logger.warning(f"Error tracking cache directory {dir_path}: {e}")
+                
             # Track each file
             new_files_found = 0
             for file_path in all_files:
