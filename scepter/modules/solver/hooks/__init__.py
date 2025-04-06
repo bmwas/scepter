@@ -16,6 +16,10 @@ before solve:
     WandbLogHook: prepare file handler
     CheckpointHook: resume checkpoint
     WandbCheckpointHook: track model config
+    WandbProbeDataHook: prepare visualization tables
+    WandbLrHook: prepare learning rate tracking
+    WandbValLossHook: prepare validation loss tracking
+    WandbFileTrackerHook: initialize file tracking
 
 before epoch:
     LogHook: clear epoch variables
@@ -31,17 +35,28 @@ after iter:
     WandbLogHook: log
     CheckpointHook: save checkpoint
     WandbCheckpointHook: track checkpoint artifacts
+    WandbProbeDataHook: log visualization data
+    WandbLrHook: log learning rate changes
+    WandbValLossHook: log validation metrics
+    WandbFileTrackerHook: periodically check for new files
     SafetensorsHook: save checkpoint
 
 after epoch:
     LrHook: reset learning rate
+    WandbLrHook: log learning rate updates
     CheckpointHook: save checkpoint
     WandbCheckpointHook: track epoch artifacts
+    WandbProbeDataHook: log evaluation visualizations
+    WandbValLossHook: log validation results
+    WandbFileTrackerHook: track new result files
 
 after solve:
     TensorboardLogHook: close file handler
     WandbLogHook: close file handler
     WandbCheckpointHook: final metrics
+    WandbProbeDataHook: finalize visualization tables
+    WandbValLossHook: finalize validation metrics
+    WandbFileTrackerHook: final file tracking and artifact upload
 """
 
 
@@ -59,6 +74,10 @@ if TYPE_CHECKING:
     from scepter.modules.solver.hooks.val_loss import ValLossHook
     from scepter.modules.solver.hooks.wandb_log import WandbLogHook
     from scepter.modules.solver.hooks.wandb_checkpoint import WandbCheckpointHook
+    from scepter.modules.solver.hooks.wandb_probe import WandbProbeDataHook
+    from scepter.modules.solver.hooks.wandb_lr import WandbLrHook
+    from scepter.modules.solver.hooks.wandb_val_loss import WandbValLossHook
+    from scepter.modules.solver.hooks.wandb_file_tracker import WandbFileTrackerHook
 else:
     _import_structure = {
         'backward': ['BackwardHook'],
@@ -73,7 +92,11 @@ else:
         'sampler': ['DistSamplerHook'],
         'val_loss': ['ValLossHook'],
         'wandb_log': ['WandbLogHook'],
-        'wandb_checkpoint': ['WandbCheckpointHook']
+        'wandb_checkpoint': ['WandbCheckpointHook'],
+        'wandb_probe': ['WandbProbeDataHook'],
+        'wandb_lr': ['WandbLrHook'],
+        'wandb_val_loss': ['WandbValLossHook'],
+        'wandb_file_tracker': ['WandbFileTrackerHook']
     }
 
     import sys
