@@ -180,5 +180,4 @@ SOLVER:
     # ---------------- file/artifact sweeper ---------------
     - {NAME: WandbFileTrackerHook, TRACK_INTERVAL: 30, PRIORITY: 1100}       # :contentReference[oaicite:4]{index=4}
 
-    # ---------------- fine‑grained param stats (optional) -
-    - {NAME: ParameterTrackerHook, TRACK_INTERVAL: 10, PRIORITY: 90}         # :contentReference[oaicite:5]{index=5}
+    # ParameterTrackerHook removed due to error: missing required 'param' argument
