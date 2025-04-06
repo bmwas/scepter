@@ -347,6 +347,8 @@ class BaseSolver(object, metaclass=ABCMeta):
 
     def set_up(self):
         self.construct_data()
+        self.construct_hook()
+        self._initialize_wandb_early()
         self.construct_model()
         self.construct_metrics()
         if not self.use_pl:
@@ -427,6 +429,36 @@ class BaseSolver(object, metaclass=ABCMeta):
         if self.cfg.have('TEST_HOOKS') and ('test' in self._mode_set
                                             or 'eval' not in self._mode_set):
             self.hooks_dict['test'] = self._load_hook(self.cfg.TEST_HOOKS)
+
+    def _initialize_wandb_early(self):
+        """Initialize wandb logging early, before model construction and download."""
+        # Check all hook types for WandbLogHook instances
+        for mode in ['train', 'eval', 'test']:
+            for hook in self.hooks_dict.get(mode, []):
+                # Find WandbLogHook instances and initialize them early
+                if hasattr(hook, '__class__') and hook.__class__.__name__ == 'WandbLogHook' and hasattr(hook, 'init_wandb'):
+                    try:
+                        # Create minimal config for early init
+                        config = {}
+                        if hasattr(self, 'cfg'):
+                            # Add solver config basics
+                            if hasattr(self.cfg, 'MODEL') and hasattr(self.cfg.MODEL, 'NAME'):
+                                config['model.name'] = self.cfg.MODEL.NAME
+                            
+                            # Add other important config values that might be useful for tracking
+                            for key in ['MAX_EPOCHS', 'TRAIN_PRECISION']:
+                                if hasattr(self.cfg, key):
+                                    config[key.lower()] = getattr(self.cfg, key)
+                        
+                        # Initialize wandb early
+                        self.logger.info("Initializing wandb early, before model download")
+                        hook.init_wandb(self, config)
+                        
+                        # Only need to initialize once, so break after finding first WandbLogHook
+                        return
+                    except Exception as e:
+                        self.logger.warning(f"Error initializing wandb early: {e}")
+                        # Continue execution even if early init fails
 
     def construct_model(self):
         # initialize Model

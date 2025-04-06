@@ -65,6 +65,10 @@ class WandbLogHook(Hook):
         'ENTITY': {
             'value': None,
             'description': 'entity (team) for the wandb run!'
+        },
+        'EARLY_INIT': {
+            'value': True, 
+            'description': 'whether to initialize wandb early before model loading'
         }
     }]
 
@@ -80,11 +84,58 @@ class WandbLogHook(Hook):
         self.save_code = cfg.get('SAVE_CODE', True)
         self.tags = cfg.get('TAGS', [])
         self.entity = cfg.get('ENTITY', None)
+        self.early_init = cfg.get('EARLY_INIT', True)
         self._local_log_dir = None
         self.wandb_run = None
         
         # Load wandb API key from .env file
         load_dotenv()
+        
+        # If early initialization is enabled, we'll set up logdir in constructor
+        # This allows other parts of the code to call init_wandb() before model loading
+        if self.early_init and self.log_dir is not None:
+            self._local_log_dir, _ = FS.map_to_local(self.log_dir)
+            os.makedirs(self._local_log_dir, exist_ok=True)
+
+    def init_wandb(self, solver=None, config=None):
+        """Initialize wandb run early, before model loading.
+        
+        This can be called at any point after hook construction but before before_solve().
+        
+        Args:
+            solver: Optional solver instance, used to get work_dir if log_dir is None
+            config: Optional configuration to log to wandb
+        """
+        if we.rank != 0 or self.wandb_run is not None:
+            return
+            
+        # Set up log directory if not already done
+        if self._local_log_dir is None:
+            if solver is not None and self.log_dir is None:
+                self.log_dir = osp.join(solver.work_dir, 'wandb')
+            if self.log_dir is not None:
+                self._local_log_dir, _ = FS.map_to_local(self.log_dir)
+                os.makedirs(self._local_log_dir, exist_ok=True)
+        
+        # Initialize wandb with minimal config initially
+        # Full config will be updated later in before_solve if available
+        self.wandb_run = wandb.init(
+            project=self.project_name,
+            name=self.run_name,
+            dir=self._local_log_dir,
+            config=config or {},
+            save_code=self.save_code,
+            tags=self.tags,
+            entity=self.entity,
+            resume="allow"
+        )
+        
+        if solver is not None and hasattr(solver, 'logger'):
+            solver.logger.info(f'Wandb: early initialized run {self.wandb_run.name} in project {self.project_name}')
+            solver.logger.info(f'Wandb: dashboard available at {self.wandb_run.url}')
+        else:
+            print(f'Wandb: early initialized run {self.wandb_run.name} in project {self.project_name}')
+            print(f'Wandb: dashboard available at {self.wandb_run.url}')
 
     def before_solve(self, solver):
         if we.rank != 0:
@@ -93,8 +144,9 @@ class WandbLogHook(Hook):
         if self.log_dir is None:
             self.log_dir = osp.join(solver.work_dir, 'wandb')
 
-        self._local_log_dir, _ = FS.map_to_local(self.log_dir)
-        os.makedirs(self._local_log_dir, exist_ok=True)
+        if self._local_log_dir is None:
+            self._local_log_dir, _ = FS.map_to_local(self.log_dir)
+            os.makedirs(self._local_log_dir, exist_ok=True)
         
         # Set up wandb configuration
         wandb_config = {}
@@ -120,47 +172,73 @@ class WandbLogHook(Hook):
                     if hasattr(data_obj, 'cfg'):
                         wandb_config.update(self._flatten_config(data_obj.cfg, prefix=f'data.{data_key}'))
         
-        # Initialize wandb run
-        self.wandb_run = wandb.init(
-            project=self.project_name,
-            name=self.run_name,
-            dir=self._local_log_dir,
-            config=wandb_config,
-            save_code=self.save_code,
-            tags=self.tags,
-            entity=self.entity,
-            resume="allow"
-        )
+        # Initialize wandb run if not already initialized via init_wandb()
+        if self.wandb_run is None:
+            # Initialize wandb run
+            self.wandb_run = wandb.init(
+                project=self.project_name,
+                name=self.run_name,
+                dir=self._local_log_dir,
+                config=wandb_config,
+                save_code=self.save_code,
+                tags=self.tags,
+                entity=self.entity,
+                resume="allow"
+            )
+            
+            solver.logger.info(f'Wandb: initialized run {self.wandb_run.name} in project {self.project_name}')
+            solver.logger.info(f'Wandb: dashboard available at {self.wandb_run.url}')
+        else:
+            # If already initialized, update config
+            for k, v in wandb_config.items():
+                self.wandb_run.config[k] = v
+            
+            solver.logger.info(f'Wandb: updated configuration for run {self.wandb_run.name}')
         
         # Log git information if available
         try:
             import git
             repo = git.Repo(search_parent_directories=True)
-            wandb_config.update({
+            git_config = {
                 'git.commit': repo.head.commit.hexsha,
                 'git.branch': repo.active_branch.name
-            })
+            }
+            for k, v in git_config.items():
+                self.wandb_run.config[k] = v
         except Exception:
             pass
             
-        solver.logger.info(f'Wandb: initialized run {self.wandb_run.name} in project {self.project_name}')
-        solver.logger.info(f'Wandb: dashboard available at {self.wandb_run.url}')
-        
         # Save initial model architecture as artifact
         if hasattr(solver, 'model'):
             try:
-                model_summary = self._get_model_summary(solver.model)
-                # Create model architecture artifact
                 model_artifact = wandb.Artifact(
-                    name=f"model-architecture-{self.wandb_run.id}",
-                    type="model-architecture",
-                    description="Initial model architecture"
+                    name=f"model_architecture_{self.wandb_run.id}", 
+                    type="model_architecture"
                 )
-                with model_artifact.new_file("model_summary.txt") as f:
-                    f.write(model_summary)
+                
+                # Save model summary if possible
+                if hasattr(solver.model, 'cfg'):
+                    model_config = solver.model.cfg
+                    model_artifact.metadata.update(self._flatten_config(model_config))
+                
+                # Add model parameters count
+                if hasattr(solver, '_model_parameters') and solver._model_parameters > 0:
+                    model_artifact.metadata["parameters_count"] = solver._model_parameters
+                    
+                # Add model FLOPS if available
+                if hasattr(solver, '_model_flops') and solver._model_flops > 0:
+                    model_artifact.metadata["flops"] = solver._model_flops
+                
                 self.wandb_run.log_artifact(model_artifact)
             except Exception as e:
-                solver.logger.warning(f"Failed to log model architecture: {e}")
+                solver.logger.warning(f"Error logging model architecture: {e}")
+
+        self.start_time = time.time()
+        self.count: defaultdict = defaultdict(int)
+        self.max_val: defaultdict = defaultdict(int)
+        self.min_val: defaultdict = defaultdict(int)
+        self.sum_val: defaultdict = defaultdict(int)
+        self.avg_val: defaultdict = defaultdict(int)
 
     def after_iter(self, solver):
         if self.wandb_run is None:
