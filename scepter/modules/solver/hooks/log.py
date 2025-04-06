@@ -133,38 +133,6 @@ def _print_iter_log(solver, outputs, final=False, start_time=0, mode=None):
                     # For simple metrics, just log the value
                     wandb_metrics[f"{mode}/{k}"] = _print_v(v, fmt='{:.6f}')
             
-            # Add throughput metrics if available
-            if 'throughput' in outputs:
-                # Check if we have the numeric value stored separately
-                if 'throughput_numeric' in outputs:
-                    wandb_metrics[f"{mode}/throughput"] = outputs['throughput_numeric']
-                    wandb_metrics[f"{mode}/throughput/samples_per_day"] = outputs['throughput_numeric']
-                # Convert string format "X/day" to numeric value
-                elif isinstance(outputs['throughput'], str) and '/day' in outputs['throughput']:
-                    try:
-                        throughput_value = int(outputs['throughput'].replace('/day', '').strip())
-                        wandb_metrics[f"{mode}/throughput"] = throughput_value
-                        wandb_metrics[f"{mode}/throughput/samples_per_day"] = throughput_value
-                    except ValueError:
-                        # If conversion fails, log the original string
-                        wandb_metrics[f"{mode}/throughput_str"] = outputs['throughput']
-                else:
-                    # If it's already a numeric value
-                    wandb_metrics[f"{mode}/throughput"] = outputs['throughput']
-                    wandb_metrics[f"{mode}/throughput/samples_per_day"] = outputs['throughput']
-                
-                # Handle all_throughput
-                if 'all_throughput' in outputs:
-                    # Ensure it's a numeric value
-                    if isinstance(outputs['all_throughput'], (int, float, np.number)):
-                        wandb_metrics[f"{mode}/all_throughput"] = float(outputs['all_throughput'])
-                    else:
-                        try:
-                            wandb_metrics[f"{mode}/all_throughput"] = float(outputs['all_throughput'])
-                        except (ValueError, TypeError):
-                            # If conversion fails, log it to a different key
-                            wandb_metrics[f"{mode}/all_throughput_str"] = str(outputs['all_throughput'])
-            
             # Add GPU memory usage if available
             if torch.cuda.is_available():
                 try:
