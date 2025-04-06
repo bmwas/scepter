@@ -159,7 +159,7 @@ SOLVER:
     # ---------------- wandb initialiser ----------------
     - {NAME: WandbLogHook,   PRIORITY: 100,                # must come before every other wandb‑hook
       PROJECT_NAME: "scepter-project",                     # Match the default project name in BaseSolver
-      RUN_NAME: "ace_0.6b_512",
+      RUN_NAME: "ace_0.6b_512_final",
       TAGS: [ACE, 0.6B],
       SAVE_CODE: True}
 
