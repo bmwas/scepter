@@ -69,6 +69,18 @@ class WandbLogHook(Hook):
         'EARLY_INIT': {
             'value': True, 
             'description': 'whether to initialize wandb early before model loading'
+        },
+        'TRACK_ACTIVATIONS': {
+            'value': False,
+            'description': 'whether to track activations in the model!'
+        },
+        'ACTIVATION_LAYERS': {
+            'value': [],
+            'description': 'specific layers to track activations for!'
+        },
+        'ACTIVATION_FREQUENCY': {
+            'value': 100,
+            'description': 'frequency of tracking activations!'
         }
     }]
 
@@ -87,6 +99,13 @@ class WandbLogHook(Hook):
         self.early_init = cfg.get('EARLY_INIT', True)
         self._local_log_dir = None
         self.wandb_run = None
+        
+        # Track activations
+        self.track_activations = cfg.get('TRACK_ACTIVATIONS', False)
+        self.activation_layers = cfg.get('ACTIVATION_LAYERS', [])
+        self.activation_frequency = cfg.get('ACTIVATION_FREQUENCY', 100)
+        self.activation_hooks = []
+        self.activations = {}
         
         # Load wandb API key from .env file
         load_dotenv()
@@ -210,6 +229,66 @@ class WandbLogHook(Hook):
                 import traceback
                 print(traceback.format_exc())
 
+    def before_solve(self, solver):
+        """Initialize wandb run and set up logging."""
+        if we.rank != 0:
+            return
+
+        try:
+            # Set up wandb logging directory
+            if self.log_dir is None:
+                self.log_dir = os.path.join(solver.work_dir, 'wandb')
+            self._local_log_dir, _ = FS.map_to_local(self.log_dir)
+            os.makedirs(self._local_log_dir, exist_ok=True)
+            
+            # Initialize wandb if not already initialized
+            if self.wandb_run is None:
+                self._init_wandb(solver)
+                
+            # Register activation hooks if requested
+            if self.track_activations and hasattr(solver, 'model') and solver.model is not None:
+                self._register_activation_hooks(solver.model)
+                
+        except Exception as e:
+            solver.logger.warning(f"Error in WandbLogHook.before_solve: {e}")
+
+    def _register_activation_hooks(self, model):
+        """Register hooks to track activations in the model."""
+        if not self.track_activations:
+            return
+            
+        try:
+            # Clear any existing hooks
+            for hook in self.activation_hooks:
+                hook.remove()
+            self.activation_hooks = []
+            
+            # Function to capture activations
+            def hook_fn(name):
+                def fn(module, input, output):
+                    # Store the activation
+                    if isinstance(output, torch.Tensor):
+                        self.activations[name] = output.detach()
+                    elif isinstance(output, tuple) and len(output) > 0:
+                        self.activations[name] = output[0].detach()
+                return fn
+            
+            # Register hooks for all modules or specific ones
+            if not self.activation_layers:
+                # Track all modules with parameters
+                for name, module in model.named_modules():
+                    if list(module.parameters()):  # Only modules with parameters
+                        self.activation_hooks.append(module.register_forward_hook(hook_fn(name)))
+            else:
+                # Track only specified layers
+                for name, module in model.named_modules():
+                    if any(layer_name in name for layer_name in self.activation_layers):
+                        self.activation_hooks.append(module.register_forward_hook(hook_fn(name)))
+                        
+            self.logger.info(f"Registered activation hooks for {len(self.activation_hooks)} layers")
+        except Exception as e:
+            self.logger.warning(f"Error registering activation hooks: {e}")
+
     def after_iter(self, solver):
         """Log metrics after each iteration."""
         if we.rank != 0 or self.wandb_run is None:
@@ -284,6 +363,59 @@ class WandbLogHook(Hook):
                         wandb_metrics[f"system/gpu{i}/memory_reserved_mb"] = mem_reserved
                 except Exception as e:
                     self.logger.warning(f"Error logging GPU memory: {e}")
+
+            # Track gradients and weights histograms for model parameters
+            if solver.is_train_mode and hasattr(solver, 'model') and solver.model is not None:
+                try:
+                    # Log parameter histograms
+                    for name, param in solver.model.named_parameters():
+                        if param.requires_grad:
+                            # Log parameter values
+                            wandb_metrics[f"model/weights/{name}"] = wandb.Histogram(param.detach().cpu().numpy())
+                            
+                            # Log parameter gradients if they exist
+                            if param.grad is not None:
+                                wandb_metrics[f"model/gradients/{name}"] = wandb.Histogram(param.grad.detach().cpu().numpy())
+                            
+                            # Log gradient norms for each layer
+                            if param.grad is not None:
+                                grad_norm = torch.norm(param.grad.detach()).item()
+                                wandb_metrics[f"model/gradient_norms/{name}"] = grad_norm
+                except Exception as e:
+                    self.logger.warning(f"Error logging parameter histograms: {e}")
+
+            # Log activations if tracking is enabled
+            if self.track_activations and solver.total_iter % self.activation_frequency == 0:
+                try:
+                    for name, activation in self.activations.items():
+                        # Skip if activation is None or empty
+                        if activation is None or activation.numel() == 0:
+                            continue
+                            
+                        # Log activation statistics
+                        if activation.numel() > 0:
+                            # Calculate statistics
+                            act_mean = activation.mean().item()
+                            act_std = activation.std().item()
+                            act_min = activation.min().item()
+                            act_max = activation.max().item()
+                            
+                            # Log statistics
+                            wandb_metrics[f"activations/{name}/mean"] = act_mean
+                            wandb_metrics[f"activations/{name}/std"] = act_std
+                            wandb_metrics[f"activations/{name}/min"] = act_min
+                            wandb_metrics[f"activations/{name}/max"] = act_max
+                            
+                            # Log histogram
+                            wandb_metrics[f"activations/{name}/histogram"] = wandb.Histogram(
+                                activation.detach().cpu().reshape(-1).numpy()
+                            )
+                            
+                            # Log sparsity (percentage of zeros)
+                            zeros = (activation == 0).float().mean().item() * 100
+                            wandb_metrics[f"activations/{name}/sparsity_pct"] = zeros
+                except Exception as e:
+                    self.logger.warning(f"Error logging activations: {e}")
 
             # Log to wandb
             self.wandb_run.log(wandb_metrics, step=solver.total_iter)
@@ -619,7 +751,18 @@ class WandbLogHook(Hook):
 
     @staticmethod
     def get_config_template():
-        return dict_to_yaml('HOOK',
-                            __class__.__name__,
-                            WandbLogHook.para_dict,
-                            set_name=True)
+        return dict_to_yaml('WANDB_LOG_HOOK', {
+            'PRIORITY': _DEFAULT_LOG_PRIORITY,
+            'LOG_DIR': None,
+            'PROJECT_NAME': 'scepter-project',
+            'RUN_NAME': None,
+            'LOG_INTERVAL': 1000,
+            'CONFIG_LOGGING': True,
+            'SAVE_CODE': True,
+            'TAGS': [],
+            'ENTITY': None,
+            'EARLY_INIT': True,
+            'TRACK_ACTIVATIONS': False,
+            'ACTIVATION_LAYERS': [],
+            'ACTIVATION_FREQUENCY': 100
+        })
