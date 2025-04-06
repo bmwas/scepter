@@ -215,10 +215,7 @@ class WandbLogHook(Hook):
         if we.rank != 0 or self.wandb_run is None:
             return
 
-        # Skip logging if not at the right interval
-        if solver.iter % self.interval != 0:
-            return
-
+        # Log at every iteration (removed interval check)
         try:
             # Get the outputs from the solver
             outputs = solver.iter_outputs.copy()
@@ -291,9 +288,8 @@ class WandbLogHook(Hook):
             # Log to wandb
             self.wandb_run.log(wandb_metrics, step=solver.total_iter)
             
-            # Check for new files in /cache/save_data every 10 iterations
-            if solver.iter % 10 == 0:
-                self._scan_for_new_files(solver)
+            # Check for new files in /cache/save_data at every iteration
+            self._scan_for_new_files(solver)
 
         except Exception as e:
             self.logger.warning(f"Error in WandbLogHook.after_iter: {e}")

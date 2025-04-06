@@ -215,6 +215,11 @@ class LogHook(Hook):
         self.data_time = data_time
 
     def after_iter(self, solver):
+        """Log metrics after each iteration."""
+        if we.rank != 0:
+            return
+
+        # Log at every iteration
         log_agg = self.log_agg_dict[solver.mode]
         iter_time = time.time() - self.time
         self.time = time.time()
@@ -224,21 +229,21 @@ class LogHook(Hook):
         if solver.mode in self.batch_size:
             outputs['throughput'] = int(self.batch_size[solver.mode] * we.data_group_world_size / iter_time * 86400)
         log_agg.update(outputs, 1)
-        log_agg = log_agg.aggregate(self.interval)
-        if 'throughput' in log_agg:
-            log_agg['throughput'] = f"{int(log_agg['throughput'][-1])}/day"
+        log_agg_result = log_agg.aggregate(1)  # Aggregate with interval of 1 to log at every iteration
+        if 'throughput' in log_agg_result:
+            log_agg_result['throughput'] = f"{int(log_agg_result['throughput'][-1])}/day"
         if solver.mode in self.batch_size:
-            log_agg['all_throughput'] = (solver.iter + 1) * we.data_group_world_size * self.batch_size[solver.mode]
+            log_agg_result['all_throughput'] = (solver.iter + 1) * we.data_group_world_size * self.batch_size[solver.mode]
 
         if self.show_gpu_mem:
-            log_agg['nvidia-smi'] = str(print_memory_status()) +"MiB"
+            log_agg_result['nvidia-smi'] = str(print_memory_status()) +"MiB"
 
-        if (solver.iter + 1) % self.interval == 0:
-            _print_iter_log(solver,
-                            log_agg,
-                            start_time=self.start_time,
-                            mode=solver.mode)
-            self.last_log_step = (solver.mode, solver.iter + 1)
+        # Print log info at every iteration
+        _print_iter_log(solver,
+                      log_agg_result,
+                      start_time=self.start_time,
+                      mode=solver.mode)
+        self.last_log_step = (solver.mode, solver.iter + 1)
 
     def after_all_iter(self, solver):
         outputs = self.log_agg_dict[solver.mode].aggregate(

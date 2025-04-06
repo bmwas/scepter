@@ -38,7 +38,7 @@ class WandbFileTrackerHook(Hook):
             'description': 'The priority for processing!'
         },
         'TRACK_INTERVAL': {
-            'value': 60,
+            'value': 60,  # 1 minute interval for time-based tracking
             'description': 'Interval in seconds to check for new files to track'
         },
         'WATCHED_DIRECTORIES': {
@@ -54,7 +54,7 @@ class WandbFileTrackerHook(Hook):
             'description': 'Patterns to exclude from tracking'
         },
         'MAX_FILES_PER_SYNC': {
-            'value': 100,
+            'value': 100,  # Increased from 50 to 100
             'description': 'Maximum number of files to sync in one interval'
         },
         'CREATE_RESULTS_ARTIFACT': {
@@ -66,7 +66,7 @@ class WandbFileTrackerHook(Hook):
             'description': 'Whether to track files after each iteration'
         },
         'ITER_TRACK_FREQUENCY': {
-            'value': 10,
+            'value': 1,  # Track at every iteration
             'description': 'How often to track files during iterations (every N iterations)'
         }
     }]
@@ -83,7 +83,7 @@ class WandbFileTrackerHook(Hook):
         self.max_files_per_sync = cfg.get('MAX_FILES_PER_SYNC', 100)
         self.create_results_artifact = cfg.get('CREATE_RESULTS_ARTIFACT', True)
         self.track_after_iter = cfg.get('TRACK_AFTER_ITER', True)
-        self.iter_track_frequency = cfg.get('ITER_TRACK_FREQUENCY', 10)
+        self.iter_track_frequency = cfg.get('ITER_TRACK_FREQUENCY', 1)  # Track at every iteration
         
         # Wandb run reference
         self.wandb_run = None
@@ -153,12 +153,12 @@ class WandbFileTrackerHook(Hook):
             solver.logger.warning(f"Error in WandbFileTrackerHook.before_solve: {e}")
 
     def after_iter(self, solver):
-        """Check for new files periodically during training."""
+        """Check for new files at every iteration."""
         if we.rank != 0 or self.wandb_run is None:
             return
             
-        # Check if we should track after this iteration
-        if self.track_after_iter and solver.iter % self.iter_track_frequency == 0:
+        # Check for new files at every iteration
+        if self.track_after_iter:
             try:
                 # Scan directories for new files
                 self._scan_directories(solver, max_files=10)  # Limit files per iteration to avoid slowdown
