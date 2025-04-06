@@ -46,16 +46,33 @@ def _print_v(x):
 
 
 def _print_iter_log(solver, outputs, final=False, start_time=0, mode=None):
-    extra_vars = solver.collect_log_vars()
-    outputs.update(extra_vars)
+    """Print the log info in iter."""
+    if mode is None:
+        mode = solver.mode
+
+    def _print_v(v, fmt='{:.4f}'):
+        if isinstance(v, torch.Tensor):
+            v = v.item()
+        if isinstance(v, numbers.Number):
+            v = fmt.format(v)
+        return v
+
     s = []
+    if outputs is None:
+        print('No log is available')
+        return None
     for k, v in outputs.items():
-        if k in ('data_time', 'time'):
+        if k == 'data_time' or k == 'time' or k == 'loss':
             continue
-        if isinstance(v, (list, tuple)) and len(v) == 2:
-            s.append(f'{k}: ' + _print_v(v[0]) + f'({_print_v(v[1])})')
+        if isinstance(v, list) and len(v) >= 2:
+            s.append(f'{k}: {_print_v(v[0])}({_print_v(v[1])})')
         else:
-            s.append(f'{k}: ' + _print_v(v))
+            s.append(f'{k}: {_print_v(v)}')
+
+    if 'loss' in outputs:
+        v = outputs['loss']
+        s.insert(0, 'loss: ' + _print_v(v[0]) + f'({_print_v(v[1])})')
+
     if 'time' in outputs:
         v = outputs['time']
         s.insert(0, 'time: ' + _print_v(v[0]) + f'({_print_v(v[1])})')
@@ -79,11 +96,41 @@ def _print_iter_log(solver, outputs, final=False, start_time=0, mode=None):
                    ) / (solver.epoch_max_iter * solver.max_epochs)
         now_status = time_since(start_time, percent)
         solver.logger.info(
-            f'Epoch [{solver.epoch}/{solver.max_epochs}], stage [{mode}] '
-            f'iter: [{solver.total_iter + 1 if not final else solver.total_iter}/{solver.epoch_max_iter * solver.max_epochs}], '  # noqa
+            f'Stage [{mode}] '
             f'iter: [{solver.iter + 1 if not final else solver.iter}/{solver.epoch_max_iter}], '
             f"{', '.join(s)}, "
-            f'[{now_status}]')
+            f'[{now_status} {percent*100:.2f}%({time_since(start_time, 1)})]')
+    
+    # Also log metrics to wandb if available
+    try:
+        import wandb
+        if wandb.run is not None:
+            # Create a dict of metrics to log to wandb
+            wandb_metrics = {}
+            
+            # Add iteration/step info
+            current_iter = solver.total_iter + (0 if final else 1)
+            wandb_metrics["global_step"] = current_iter
+            
+            # Process all metrics from outputs
+            for k, v in outputs.items():
+                if isinstance(v, list) and len(v) >= 2:
+                    # For metrics that have current and average values (like loss, time, etc.)
+                    # Log both the current value and the running average
+                    wandb_metrics[f"{mode}/{k}"] = _print_v(v[0], fmt='{:.6f}')
+                    wandb_metrics[f"{mode}/{k}_avg"] = _print_v(v[1], fmt='{:.6f}')
+                elif k != 'data_time' and k != 'time':  # Skip logging timing info twice
+                    # For simple metrics, just log the value
+                    wandb_metrics[f"{mode}/{k}"] = _print_v(v, fmt='{:.6f}')
+            
+            # Add progress metrics
+            wandb_metrics[f"{mode}/progress_percent"] = percent * 100
+            
+            # Log to wandb
+            wandb.log(wandb_metrics, step=current_iter)
+    except Exception as e:
+        # Silently continue if wandb logging fails
+        pass
 
 
 def print_memory_status():

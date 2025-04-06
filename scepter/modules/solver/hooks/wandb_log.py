@@ -90,9 +90,17 @@ class WandbLogHook(Hook):
         
         # Load wandb API key from .env file
         load_dotenv()
+        # Debug logging for WANDB_API_KEY
+        api_key = os.getenv('WANDB_API_KEY')
+        if not api_key:
+            warnings.warn('WANDB_API_KEY not found in environment. Wandb tracking will not work!')
+        else:
+            if self.logger:
+                self.logger.info('WANDB_API_KEY successfully loaded.')
+            else:
+                print('WANDB_API_KEY successfully loaded.')
         
         # If early initialization is enabled, we'll set up logdir in constructor
-        # This allows other parts of the code to call init_wandb() before model loading
         if self.early_init and self.log_dir is not None:
             self._local_log_dir, _ = FS.map_to_local(self.log_dir)
             os.makedirs(self._local_log_dir, exist_ok=True)
@@ -118,7 +126,6 @@ class WandbLogHook(Hook):
                 os.makedirs(self._local_log_dir, exist_ok=True)
         
         # Initialize wandb with minimal config initially
-        # Full config will be updated later in before_solve if available
         self.wandb_run = wandb.init(
             project=self.project_name,
             name=self.run_name,
@@ -130,12 +137,17 @@ class WandbLogHook(Hook):
             resume="allow"
         )
         
-        if solver is not None and hasattr(solver, 'logger'):
-            solver.logger.info(f'Wandb: early initialized run {self.wandb_run.name} in project {self.project_name}')
-            solver.logger.info(f'Wandb: dashboard available at {self.wandb_run.url}')
+        # Debug logging for wandb initialization
+        if self.wandb_run is not None:
+            if solver and hasattr(solver, 'logger'):
+                solver.logger.info(f'Wandb initialized: run name={self.wandb_run.name}, project={self.project_name}')
+            else:
+                print(f'Wandb initialized: run name={self.wandb_run.name}, project={self.project_name}')
         else:
-            print(f'Wandb: early initialized run {self.wandb_run.name} in project {self.project_name}')
-            print(f'Wandb: dashboard available at {self.wandb_run.url}')
+            if solver and hasattr(solver, 'logger'):
+                solver.logger.error('Wandb initialization failed.')
+            else:
+                print('Wandb initialization failed.')
 
     def before_solve(self, solver):
         if we.rank != 0:
