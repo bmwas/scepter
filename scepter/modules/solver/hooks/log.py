@@ -133,6 +133,38 @@ def _print_iter_log(solver, outputs, final=False, start_time=0, mode=None):
                     # For simple metrics, just log the value
                     wandb_metrics[f"{mode}/{k}"] = _print_v(v, fmt='{:.6f}')
             
+            # Add throughput metrics if available
+            if 'throughput' in outputs:
+                # Check if we have the numeric value stored separately
+                if 'throughput_numeric' in outputs:
+                    wandb_metrics[f"{mode}/throughput"] = outputs['throughput_numeric']
+                    wandb_metrics[f"{mode}/throughput/samples_per_day"] = outputs['throughput_numeric']
+                # Convert string format "X/day" to numeric value
+                elif isinstance(outputs['throughput'], str) and '/day' in outputs['throughput']:
+                    try:
+                        throughput_value = int(outputs['throughput'].replace('/day', '').strip())
+                        wandb_metrics[f"{mode}/throughput"] = throughput_value
+                        wandb_metrics[f"{mode}/throughput/samples_per_day"] = throughput_value
+                    except ValueError:
+                        # If conversion fails, log the original string
+                        wandb_metrics[f"{mode}/throughput_str"] = outputs['throughput']
+                else:
+                    # If it's already a numeric value
+                    wandb_metrics[f"{mode}/throughput"] = outputs['throughput']
+                    wandb_metrics[f"{mode}/throughput/samples_per_day"] = outputs['throughput']
+                
+                # Handle all_throughput
+                if 'all_throughput' in outputs:
+                    # Ensure it's a numeric value
+                    if isinstance(outputs['all_throughput'], (int, float, np.number)):
+                        wandb_metrics[f"{mode}/all_throughput"] = float(outputs['all_throughput'])
+                    else:
+                        try:
+                            wandb_metrics[f"{mode}/all_throughput"] = float(outputs['all_throughput'])
+                        except (ValueError, TypeError):
+                            # If conversion fails, log it to a different key
+                            wandb_metrics[f"{mode}/all_throughput_str"] = str(outputs['all_throughput'])
+            
             # Add GPU memory usage if available
             if torch.cuda.is_available():
                 try:
@@ -146,9 +178,48 @@ def _print_iter_log(solver, outputs, final=False, start_time=0, mode=None):
             
             # Add throughput metrics if available
             if 'throughput' in outputs:
-                wandb_metrics[f"{mode}/throughput/samples_per_day"] = outputs['throughput']
+                # Check if we have the numeric value stored separately
+                if 'throughput_numeric' in outputs:
+                    wandb_metrics[f"{mode}/throughput"] = outputs['throughput_numeric']
+                    wandb_metrics[f"{mode}/throughput/samples_per_day"] = outputs['throughput_numeric']
+                # Convert string format "X/day" to numeric value
+                elif isinstance(outputs['throughput'], str) and '/day' in outputs['throughput']:
+                    try:
+                        throughput_value = int(outputs['throughput'].replace('/day', '').strip())
+                        wandb_metrics[f"{mode}/throughput"] = throughput_value
+                        wandb_metrics[f"{mode}/throughput/samples_per_day"] = throughput_value
+                    except ValueError:
+                        # If conversion fails, log the original string
+                        wandb_metrics[f"{mode}/throughput_str"] = outputs['throughput']
+                else:
+                    # If it's already a numeric value
+                    wandb_metrics[f"{mode}/throughput"] = outputs['throughput']
+                    wandb_metrics[f"{mode}/throughput/samples_per_day"] = outputs['throughput']
+                
+                # Handle all_throughput
                 if 'all_throughput' in outputs:
-                    wandb_metrics[f"{mode}/throughput/total_samples"] = outputs['all_throughput']
+                    # Ensure it's a numeric value
+                    if isinstance(outputs['all_throughput'], (int, float, np.number)):
+                        wandb_metrics[f"{mode}/all_throughput"] = float(outputs['all_throughput'])
+                    else:
+                        try:
+                            wandb_metrics[f"{mode}/all_throughput"] = float(outputs['all_throughput'])
+                        except (ValueError, TypeError):
+                            # If conversion fails, log it to a different key
+                            wandb_metrics[f"{mode}/all_throughput_str"] = str(outputs['all_throughput'])
+            
+            # Handle data_time specifically - ensure it's logged as a scalar
+            if 'data_time' in outputs:
+                if isinstance(outputs['data_time'], list) and len(outputs['data_time']) > 0:
+                    # Log the current value (first element)
+                    current_data_time = outputs['data_time'][0]
+                    if isinstance(current_data_time, (str, int, float, np.number)):
+                        try:
+                            wandb_metrics[f"{mode}/data_time"] = float(current_data_time)
+                        except (ValueError, TypeError):
+                            pass
+                    elif isinstance(current_data_time, torch.Tensor):
+                        wandb_metrics[f"{mode}/data_time"] = current_data_time.item()
             
             # Log estimated time remaining
             wandb_metrics[f"{mode}/time_remaining_seconds"] = (1 - percent) * (time.time() - start_time) / max(percent, 1e-8)
@@ -227,14 +298,26 @@ class LogHook(Hook):
         outputs['time'] = iter_time
         outputs['data_time'] = self.data_time
         if solver.mode in self.batch_size:
-            outputs['throughput'] = int(self.batch_size[solver.mode] * we.data_group_world_size / iter_time * 86400)
+            # Calculate throughput as numeric value
+            throughput_value = int(self.batch_size[solver.mode] * we.data_group_world_size / iter_time * 86400)
+            # Store raw numeric value for wandb logging
+            outputs['throughput'] = throughput_value
+            # Store formatted string version for display in logs
+            outputs['throughput_display'] = f"{throughput_value}/day"
         log_agg.update(outputs, 1)
         log_agg_result = log_agg.aggregate(1)  # Aggregate with interval of 1 to log at every iteration
+        
+        # Format throughput for display in logs, but keep the numeric value for wandb
         if 'throughput' in log_agg_result:
+            # Store the numeric value for wandb in a separate key
+            log_agg_result['throughput_numeric'] = int(log_agg_result['throughput'][-1])
+            # Format the display version
             log_agg_result['throughput'] = f"{int(log_agg_result['throughput'][-1])}/day"
+        
         if solver.mode in self.batch_size:
+            # Store as numeric value for wandb
             log_agg_result['all_throughput'] = (solver.iter + 1) * we.data_group_world_size * self.batch_size[solver.mode]
-
+        
         if self.show_gpu_mem:
             log_agg_result['nvidia-smi'] = str(print_memory_status()) +"MiB"
 

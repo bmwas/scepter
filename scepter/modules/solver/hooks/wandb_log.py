@@ -313,8 +313,35 @@ class WandbLogHook(Hook):
 
             # Process all metrics from outputs
             for key, value in outputs.items():
-                if isinstance(value, list) and len(value) >= 2:
-                    # For metrics with current and average values (like loss)
+                # Special handling for loss values
+                if key == 'loss' or key.endswith('_loss'):
+                    # Ensure loss is logged as a scalar
+                    if isinstance(value, list):
+                        # If loss is a list, take the first element (current loss)
+                        current_loss = value[0] if len(value) > 0 else None
+                        avg_loss = value[1] if len(value) > 1 else None
+                        
+                        # Convert tensor to scalar if needed
+                        if isinstance(current_loss, torch.Tensor):
+                            current_loss = current_loss.item()
+                        if isinstance(avg_loss, torch.Tensor):
+                            avg_loss = avg_loss.item()
+                            
+                        # Log both current and average loss
+                        if current_loss is not None:
+                            wandb_metrics[f"{solver.mode}/iter/{key}"] = current_loss
+                            wandb_metrics[f"{solver.mode}/{key}/current"] = current_loss
+                        if avg_loss is not None:
+                            wandb_metrics[f"{solver.mode}/{key}/average"] = avg_loss
+                    else:
+                        # Handle scalar loss
+                        if isinstance(value, torch.Tensor):
+                            value = value.item()
+                        wandb_metrics[f"{solver.mode}/iter/{key}"] = value
+                        
+                # Handle other metrics
+                elif isinstance(value, list) and len(value) >= 2:
+                    # For metrics with current and average values
                     current_val = value[0]
                     avg_val = value[1]
 
@@ -449,7 +476,34 @@ class WandbLogHook(Hook):
 
             # Process all metrics from outputs
             for key, value in outputs.items():
-                if isinstance(value, list) and len(value) >= 2:
+                # Special handling for loss values
+                if key == 'loss' or key.endswith('_loss'):
+                    # Ensure loss is logged as a scalar
+                    if isinstance(value, list):
+                        # If loss is a list, take the first element (current loss)
+                        current_loss = value[0] if len(value) > 0 else None
+                        avg_loss = value[1] if len(value) > 1 else None
+                        
+                        # Convert tensor to scalar if needed
+                        if isinstance(current_loss, torch.Tensor):
+                            current_loss = current_loss.item()
+                        if isinstance(avg_loss, torch.Tensor):
+                            avg_loss = avg_loss.item()
+                            
+                        # Log both current and average loss
+                        if current_loss is not None:
+                            wandb_metrics[f"{solver.mode}/epoch/{key}"] = current_loss
+                            wandb_metrics[f"{solver.mode}/{key}/epoch/current"] = current_loss
+                        if avg_loss is not None:
+                            wandb_metrics[f"{solver.mode}/{key}/epoch/average"] = avg_loss
+                    else:
+                        # Handle scalar loss
+                        if isinstance(value, torch.Tensor):
+                            value = value.item()
+                        wandb_metrics[f"{solver.mode}/epoch/{key}"] = value
+                        wandb_metrics[f"{solver.mode}/{key}/epoch"] = value
+                
+                elif isinstance(value, list) and len(value) >= 2:
                     # For metrics with current and average values
                     current_val = value[0]
                     avg_val = value[1]
