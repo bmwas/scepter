@@ -276,6 +276,17 @@ class WandbLogHook(Hook):
             if isinstance(value, torch.Tensor):
                 # Must be scalar
                 if not value.ndim == 0:
+                    # Handle images if present
+                    if key.endswith('_img') and value.ndim == 4:
+                        try:
+                            # Add image data
+                            if value.shape[1] in [1, 3]:  # Check if channels are in correct position
+                                wandb_metrics[f'{mode}/images/{key}'] = wandb.Image(
+                                    value[0].detach().cpu().float().numpy().transpose(1, 2, 0),
+                                    caption=key
+                                )
+                        except Exception:
+                            pass
                     continue
                 value = value.item()
             elif isinstance(value, np.ndarray):
@@ -295,14 +306,22 @@ class WandbLogHook(Hook):
         # Add step information
         wandb_metrics['global_step'] = solver.total_iter
         
+        # Log learning rate if available
+        if hasattr(solver, 'optimizer'):
+            for i, param_group in enumerate(solver.optimizer.param_groups):
+                if 'lr' in param_group:
+                    wandb_metrics[f'{mode}/iter/lr_group_{i}'] = param_group['lr']
+        
         # Log to wandb
         self.wandb_run.log(wandb_metrics, step=solver.total_iter)
         
         # Sync to wandb server at the same interval as TensorboardLogHook flushes
         if solver.total_iter % self.interval == 0:
-            # Nothing to do here as wandb auto-syncs
-            pass
-
+            # Force sync
+            self.wandb_run.log({}, commit=True)
+            # Put to remote file systems every epoch
+            FS.put_dir_from_local_dir(self._local_log_dir, self.log_dir)
+            
     def after_epoch(self, solver):
         """Called after each epoch.
         
@@ -323,6 +342,44 @@ class WandbLogHook(Hook):
                 
         # Log to wandb
         self.wandb_run.log(wandb_metrics, step=solver.epoch)
+        
+        # Save model checkpoint as artifact at the end of each epoch
+        if hasattr(solver, 'model') and we.rank == 0:
+            try:
+                # Create checkpoint artifact
+                checkpoint_artifact = wandb.Artifact(
+                    name=f"model-checkpoint-epoch-{solver.epoch}",
+                    type="model-checkpoint",
+                    description=f"Model checkpoint at epoch {solver.epoch}"
+                )
+                
+                # Add metadata to the artifact
+                checkpoint_artifact.metadata = {
+                    "epoch": solver.epoch,
+                    "iteration": solver.total_iter,
+                    "timestamp": time.time()
+                }
+                
+                # Add performance metrics to metadata if available
+                if outputs:
+                    for mode, kvs in outputs.items():
+                        for key, value in kvs.items():
+                            if isinstance(value, (int, float)):
+                                checkpoint_artifact.metadata[f"{mode}_{key}"] = value
+                
+                # Add checkpoint file to artifact if it exists
+                checkpoint_path = osp.join(solver.work_dir, f"epoch_{solver.epoch}.pth")
+                if osp.exists(checkpoint_path):
+                    checkpoint_artifact.add_file(checkpoint_path)
+                    self.wandb_run.log_artifact(checkpoint_artifact)
+            except Exception as e:
+                solver.logger.warning(f"Failed to log checkpoint artifact: {e}")
+        
+        # Sync wandb
+        self.wandb_run.log({}, commit=True)  # Force sync
+        
+        # Put to remote file systems every epoch
+        FS.put_dir_from_local_dir(self._local_log_dir, self.log_dir)
 
     def after_solve(self, solver):
         if self.wandb_run is None:
