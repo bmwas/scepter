@@ -210,270 +210,393 @@ class WandbLogHook(Hook):
                 import traceback
                 print(traceback.format_exc())
 
-    def before_solve(self, solver):
-        if we.rank != 0:
-            return
-
-        if self.log_dir is None:
-            self.log_dir = osp.join(solver.work_dir, 'wandb')
-
-        if self._local_log_dir is None:
-            self._local_log_dir, _ = FS.map_to_local(self.log_dir)
-            os.makedirs(self._local_log_dir, exist_ok=True)
-        
-        # Set up wandb configuration
-        wandb_config = {}
-        
-        # Get important configurations from solver
-        if self.config_logging and hasattr(solver, 'cfg'):
-            # Add solver config
-            wandb_config.update(self._flatten_config(solver.cfg))
-            
-            # Add model config if available
-            if hasattr(solver, 'model') and hasattr(solver.model, 'cfg'):
-                wandb_config.update(self._flatten_config(solver.model.cfg, prefix='model'))
-            
-            # Add optimizer config if available
-            if hasattr(solver, 'optimizer') and hasattr(solver.optimizer, 'defaults'):
-                for k, v in solver.optimizer.defaults.items():
-                    if isinstance(v, (int, float, str, bool)):
-                        wandb_config[f'optimizer.{k}'] = v
-            
-            # Add dataset config if available
-            if hasattr(solver, 'datas'):
-                for data_key, data_obj in solver.datas.items():
-                    if hasattr(data_obj, 'cfg'):
-                        wandb_config.update(self._flatten_config(data_obj.cfg, prefix=f'data.{data_key}'))
-        
-        # Initialize wandb run if not already initialized via init_wandb()
-        if self.wandb_run is None:
-            # Initialize wandb run
-            self.wandb_run = wandb.init(
-                project=self.project_name,
-                name=self.run_name,
-                dir=self._local_log_dir,
-                config=wandb_config,
-                save_code=self.save_code,
-                tags=self.tags,
-                entity=self.entity,
-                resume="allow"
-            )
-            
-            solver.logger.info(f'Wandb: initialized run {self.wandb_run.name} in project {self.project_name}')
-            solver.logger.info(f'Wandb: dashboard available at {self.wandb_run.url}')
-        else:
-            # If already initialized, update config
-            for k, v in wandb_config.items():
-                self.wandb_run.config[k] = v
-            
-            solver.logger.info(f'Wandb: updated configuration for run {self.wandb_run.name}')
-        
-        # Log git information if available
-        try:
-            import git
-            repo = git.Repo(search_parent_directories=True)
-            git_config = {
-                'git.commit': repo.head.commit.hexsha,
-                'git.branch': repo.active_branch.name
-            }
-            for k, v in git_config.items():
-                self.wandb_run.config[k] = v
-        except Exception:
-            pass
-            
-        # Save initial model architecture as artifact
-        if hasattr(solver, 'model'):
-            try:
-                model_artifact = wandb.Artifact(
-                    name=f"model_architecture_{self.wandb_run.id}", 
-                    type="model_architecture"
-                )
-                
-                # Save model summary if possible
-                if hasattr(solver.model, 'cfg'):
-                    model_config = solver.model.cfg
-                    model_artifact.metadata.update(self._flatten_config(model_config))
-                
-                # Add model parameters count
-                if hasattr(solver, '_model_parameters') and solver._model_parameters > 0:
-                    model_artifact.metadata["parameters_count"] = solver._model_parameters
-                    
-                # Add model FLOPS if available
-                if hasattr(solver, '_model_flops') and solver._model_flops > 0:
-                    model_artifact.metadata["flops"] = solver._model_flops
-                
-                self.wandb_run.log_artifact(model_artifact)
-            except Exception as e:
-                solver.logger.warning(f"Error logging model architecture: {e}")
-
-        self.start_time = time.time()
-        self.count: defaultdict = defaultdict(int)
-        self.max_val: defaultdict = defaultdict(int)
-        self.min_val: defaultdict = defaultdict(int)
-        self.sum_val: defaultdict = defaultdict(int)
-        self.avg_val: defaultdict = defaultdict(int)
-
     def after_iter(self, solver):
-        """Called after each iteration.
-        
-        This method logs metrics to wandb in the same way TensorboardLogHook does.
-        It ensures wandb and tensorboard have the same metrics logged.
-        """
+        """Log metrics after each iteration."""
         if we.rank != 0 or self.wandb_run is None:
-            # Debug: Log why we're not logging
-            if solver.total_iter % 100 == 0:  # Only log every 100 iterations to avoid spam
-                if we.rank != 0:
-                    solver.logger.info("WandbLogHook.after_iter: Not logging because we.rank != 0")
-                elif self.wandb_run is None:
-                    solver.logger.error("WandbLogHook.after_iter: Not logging because self.wandb_run is None!")
             return
-            
-        # Debug: Log that we're attempting to log metrics
-        if solver.total_iter % 100 == 0:  # Only log every 100 iterations to avoid spam
-            solver.logger.info(f"WandbLogHook.after_iter: Logging metrics at iteration {solver.total_iter}")
-            
-        outputs = solver.iter_outputs.copy()
-        extra_vars = solver.collect_log_vars()
-        outputs.update(extra_vars)
-        mode = solver.mode
-        
-        # Create a dict of metrics to log to wandb
-        wandb_metrics = {}
-        
-        # Process all metrics from outputs exactly like TensorboardLogHook does
-        for key, value in outputs.items():
-            if key == 'batch_size':
-                continue
-            if isinstance(value, torch.Tensor):
-                # Must be scalar
-                if not value.ndim == 0:
-                    # Handle images if present
-                    if key.endswith('_img') and value.ndim == 4:
-                        try:
-                            # Add image data
-                            if value.shape[1] in [1, 3]:  # Check if channels are in correct position
-                                wandb_metrics[f'{mode}/images/{key}'] = wandb.Image(
-                                    value[0].detach().cpu().float().numpy().transpose(1, 2, 0),
-                                    caption=key
-                                )
-                        except Exception:
-                            pass
-                    continue
-                value = value.item()
-            elif isinstance(value, np.ndarray):
-                # Must be scalar
-                if not value.ndim == 0:
-                    continue
-                value = float(value)
-            elif isinstance(value, numbers.Number):
-                # Must be number
-                pass
-            else:
-                continue
-                
-            # Use same naming convention as TensorboardLogHook
-            wandb_metrics[f'{mode}/iter/{key}'] = value
-            
-        # Add step information
-        wandb_metrics['global_step'] = solver.total_iter
-        
-        # Log learning rate if available
-        if hasattr(solver, 'optimizer'):
-            for i, param_group in enumerate(solver.optimizer.param_groups):
-                if 'lr' in param_group:
-                    wandb_metrics[f'{mode}/iter/lr_group_{i}'] = param_group['lr']
-        
-        # Log to wandb
+
+        # Skip logging if not at the right interval
+        if solver.iter % self.interval != 0:
+            return
+
         try:
+            # Get the outputs from the solver
+            outputs = solver.iter_outputs.copy()
+            extra_vars = solver.collect_log_vars()
+            outputs.update(extra_vars)
+
+            # Create a dictionary for wandb metrics
+            wandb_metrics = {}
+
+            # Process all metrics from outputs
+            for key, value in outputs.items():
+                if isinstance(value, list) and len(value) >= 2:
+                    # For metrics with current and average values (like loss)
+                    current_val = value[0]
+                    avg_val = value[1]
+
+                    # Convert tensor to Python value if needed
+                    if isinstance(current_val, torch.Tensor):
+                        current_val = current_val.item()
+                    if isinstance(avg_val, torch.Tensor):
+                        avg_val = avg_val.item()
+
+                    # Log both current and average values
+                    wandb_metrics[f"{solver.mode}/iter/{key}"] = current_val
+                    wandb_metrics[f"{solver.mode}/iter/{key}_avg"] = avg_val
+                    
+                    # Also log with hierarchical naming for better organization
+                    wandb_metrics[f"{solver.mode}/{key}/current"] = current_val
+                    wandb_metrics[f"{solver.mode}/{key}/average"] = avg_val
+                else:
+                    # For simple metrics
+                    if isinstance(value, torch.Tensor):
+                        if value.numel() == 1:  # It's a scalar tensor
+                            value = value.item()
+                        elif key.endswith('_img') and value.dim() in [3, 4]:
+                            # It's likely an image tensor, log as image
+                            if value.dim() == 4:  # batch of images
+                                # Take first image if it's a batch
+                                value = value[0]
+                            
+                            # Normalize if needed
+                            if value.max() > 1.0:
+                                value = value / 255.0
+                            
+                            # Convert to wandb Image
+                            wandb_metrics[f"{solver.mode}/images/{key}"] = wandb.Image(value)
+                            continue  # Skip the normal scalar logging for this key
+
+                    # Log the value
+                    if isinstance(value, (int, float, np.number)) or (isinstance(value, torch.Tensor) and value.numel() == 1):
+                        wandb_metrics[f"{solver.mode}/iter/{key}"] = value
+
+            # Log learning rates if available
+            if hasattr(solver, 'optimizer') and solver.optimizer is not None:
+                for i, param_group in enumerate(solver.optimizer.param_groups):
+                    if 'lr' in param_group:
+                        wandb_metrics[f"{solver.mode}/lr/group_{i}"] = param_group['lr']
+
+            # Add system metrics
+            if torch.cuda.is_available():
+                try:
+                    for i in range(torch.cuda.device_count()):
+                        mem_allocated = torch.cuda.memory_allocated(i) / (1024 ** 2)  # MB
+                        mem_reserved = torch.cuda.memory_reserved(i) / (1024 ** 2)  # MB
+                        wandb_metrics[f"system/gpu{i}/memory_allocated_mb"] = mem_allocated
+                        wandb_metrics[f"system/gpu{i}/memory_reserved_mb"] = mem_reserved
+                except Exception as e:
+                    self.logger.warning(f"Error logging GPU memory: {e}")
+
+            # Log to wandb
             self.wandb_run.log(wandb_metrics, step=solver.total_iter)
-            if solver.total_iter % 100 == 0:  # Only log every 100 iterations to avoid spam
-                solver.logger.info(f"WandbLogHook: Successfully logged {len(wandb_metrics)} metrics to wandb")
+            
+            # Check for new files in /cache/save_data every 10 iterations
+            if solver.iter % 10 == 0:
+                self._scan_for_new_files(solver)
+
         except Exception as e:
-            solver.logger.error(f"Error logging to wandb: {e}")
-            import traceback
-            solver.logger.error(traceback.format_exc())
-        
-        # Sync to wandb server at the same interval as TensorboardLogHook flushes
-        if solver.total_iter % self.interval == 0:
-            try:
-                # Force sync
-                self.wandb_run.log({}, commit=True)
-                # Put to remote file systems every epoch
-                FS.put_dir_from_local_dir(self._local_log_dir, self.log_dir)
-                solver.logger.info(f"WandbLogHook: Synced wandb at iteration {solver.total_iter}")
-            except Exception as e:
-                solver.logger.error(f"Error syncing wandb: {e}")
-                import traceback
-                solver.logger.error(traceback.format_exc())
+            self.logger.warning(f"Error in WandbLogHook.after_iter: {e}")
 
     def after_epoch(self, solver):
-        """Called after each epoch.
+        """Log metrics after each epoch."""
+        if we.rank != 0 or self.wandb_run is None:
+            return
+
+        try:
+            # Get the outputs from the solver
+            outputs = solver.epoch_outputs.copy()
+
+            # Create a dictionary for wandb metrics
+            wandb_metrics = {}
+
+            # Process all metrics from outputs
+            for key, value in outputs.items():
+                if isinstance(value, list) and len(value) >= 2:
+                    # For metrics with current and average values
+                    current_val = value[0]
+                    avg_val = value[1]
+
+                    # Convert tensor to Python value if needed
+                    if isinstance(current_val, torch.Tensor):
+                        current_val = current_val.item()
+                    if isinstance(avg_val, torch.Tensor):
+                        avg_val = avg_val.item()
+
+                    # Log both current and average values
+                    wandb_metrics[f"{solver.mode}/epoch/{key}"] = current_val
+                    wandb_metrics[f"{solver.mode}/epoch/{key}_avg"] = avg_val
+                    
+                    # Also log with hierarchical naming
+                    wandb_metrics[f"{solver.mode}/{key}/epoch/current"] = current_val
+                    wandb_metrics[f"{solver.mode}/{key}/epoch/average"] = avg_val
+                else:
+                    # For simple metrics
+                    if isinstance(value, torch.Tensor):
+                        if value.numel() == 1:  # It's a scalar tensor
+                            value = value.item()
+                        elif key.endswith('_img') and value.dim() in [3, 4]:
+                            # It's likely an image tensor, log as image
+                            if value.dim() == 4:  # batch of images
+                                # Take first image if it's a batch
+                                value = value[0]
+                            
+                            # Normalize if needed
+                            if value.max() > 1.0:
+                                value = value / 255.0
+                            
+                            # Convert to wandb Image
+                            wandb_metrics[f"{solver.mode}/epoch_images/{key}"] = wandb.Image(value)
+                            continue  # Skip the normal scalar logging
+
+                    # Log the value
+                    if isinstance(value, (int, float, np.number)) or (isinstance(value, torch.Tensor) and value.numel() == 1):
+                        wandb_metrics[f"{solver.mode}/epoch/{key}"] = value
+
+            # Add epoch summary metrics
+            wandb_metrics[f"{solver.mode}/epoch"] = solver.epoch
+            wandb_metrics[f"{solver.mode}/epoch_progress"] = solver.epoch / solver.max_epochs * 100 if solver.max_epochs > 0 else 0
+
+            # Log to wandb
+            self.wandb_run.log(wandb_metrics, step=solver.total_iter)
+
+            # Log checkpoint as artifact
+            if hasattr(solver, 'checkpoint_hook') and solver.checkpoint_hook is not None:
+                self._log_checkpoint_artifact(solver)
+                
+            # Scan for new files in the work directory
+            self._scan_for_new_files(solver, force=True)
+
+        except Exception as e:
+            self.logger.warning(f"Error in WandbLogHook.after_epoch: {e}")
+
+    def after_solve(self, solver):
+        """Log final metrics and artifacts after solving."""
+        if we.rank != 0 or self.wandb_run is None:
+            return
+
+        try:
+            # Log final checkpoint as artifact
+            if hasattr(solver, 'checkpoint_hook') and solver.checkpoint_hook is not None:
+                self._log_checkpoint_artifact(solver, is_final=True)
+                
+            # Final scan for all files in the work directory
+            self._scan_for_new_files(solver, force=True, final=True)
+            
+            # Create a final summary artifact with all config and results
+            self._create_final_summary_artifact(solver)
+            
+            # Finish the wandb run
+            self.wandb_run.finish()
+            
+        except Exception as e:
+            self.logger.warning(f"Error in WandbLogHook.after_solve: {e}")
+            
+    def _scan_for_new_files(self, solver, force=False, final=False):
+        """Scan for new files in the work directory and log them to wandb.
         
-        This method logs epoch metrics to wandb in the same way TensorboardLogHook does.
+        Args:
+            solver: The solver instance
+            force: Whether to force scanning even if the last scan was recent
+            final: Whether this is the final scan at the end of training
         """
         if we.rank != 0 or self.wandb_run is None:
             return
             
-        outputs = solver.epoch_outputs.copy()
-        
-        # Create a dict of metrics to log to wandb
-        wandb_metrics = {}
-        
-        # Process metrics the same way TensorboardLogHook does
-        for mode, kvs in outputs.items():
-            for key, value in kvs.items():
-                wandb_metrics[f'{mode}/epoch/{key}'] = value
-                
-        # Log to wandb
-        self.wandb_run.log(wandb_metrics, step=solver.epoch)
-        
-        # Save model checkpoint as artifact at the end of each epoch
-        if hasattr(solver, 'model') and we.rank == 0:
-            try:
-                # Create checkpoint artifact
-                checkpoint_artifact = wandb.Artifact(
-                    name=f"model-checkpoint-epoch-{solver.epoch}",
-                    type="model-checkpoint",
-                    description=f"Model checkpoint at epoch {solver.epoch}"
-                )
-                
-                # Add metadata to the artifact
-                checkpoint_artifact.metadata = {
-                    "epoch": solver.epoch,
-                    "iteration": solver.total_iter,
-                    "timestamp": time.time()
-                }
-                
-                # Add performance metrics to metadata if available
-                if outputs:
-                    for mode, kvs in outputs.items():
-                        for key, value in kvs.items():
-                            if isinstance(value, (int, float)):
-                                checkpoint_artifact.metadata[f"{mode}_{key}"] = value
-                
-                # Add checkpoint file to artifact if it exists
-                checkpoint_path = osp.join(solver.work_dir, f"epoch_{solver.epoch}.pth")
-                if osp.exists(checkpoint_path):
-                    checkpoint_artifact.add_file(checkpoint_path)
-                    self.wandb_run.log_artifact(checkpoint_artifact)
-            except Exception as e:
-                solver.logger.warning(f"Failed to log checkpoint artifact: {e}")
-        
-        # Sync wandb
-        self.wandb_run.log({}, commit=True)  # Force sync
-        
-        # Put to remote file systems every epoch
-        FS.put_dir_from_local_dir(self._local_log_dir, self.log_dir)
-
-    def after_solve(self, solver):
-        if self.wandb_run is None:
+        # Only scan periodically unless forced
+        current_time = time.time()
+        if not force and hasattr(self, '_last_scan_time') and current_time - self._last_scan_time < 60:  # 60 seconds
             return
             
-        # Close wandb run
-        self.wandb_run.finish()
+        self._last_scan_time = current_time
         
-        # Sync to remote filesystem
-        FS.put_dir_from_local_dir(self._local_log_dir, self.log_dir)
+        try:
+            # Default work directory to scan
+            work_dir = solver.work_dir
+            if not os.path.exists(work_dir):
+                return
+                
+            # Track files by extension
+            image_extensions = ['.png', '.jpg', '.jpeg']
+            video_extensions = ['.mp4', '.gif']
+            data_extensions = ['.json', '.yaml', '.csv', '.txt']
+            model_extensions = ['.pth', '.pt', '.ckpt', '.bin', '.h5']
+            
+            # Keep track of files we've already logged
+            if not hasattr(self, '_logged_files'):
+                self._logged_files = set()
+                
+            # Create artifacts for different file types if final scan
+            if final:
+                self._images_artifact = wandb.Artifact(f"images_{self.wandb_run.id}", type="images")
+                self._videos_artifact = wandb.Artifact(f"videos_{self.wandb_run.id}", type="videos")
+                self._data_artifact = wandb.Artifact(f"data_{self.wandb_run.id}", type="data")
+                self._models_artifact = wandb.Artifact(f"models_{self.wandb_run.id}", type="models")
+                
+            # Walk through the directory
+            for root, _, files in os.walk(work_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    
+                    # Skip if already logged
+                    if file_path in self._logged_files:
+                        continue
+                        
+                    # Get file extension
+                    _, ext = os.path.splitext(file_path)
+                    ext = ext.lower()
+                    
+                    # Skip certain files
+                    if any(pattern in file_path for pattern in ['__pycache__', '.git', 'tmp', 'temp']):
+                        continue
+                        
+                    # Log based on file type
+                    try:
+                        if ext in image_extensions:
+                            # Log image
+                            img = wandb.Image(file_path)
+                            rel_path = os.path.relpath(file_path, work_dir)
+                            self.wandb_run.log({f"files/images/{rel_path}": img}, step=solver.total_iter)
+                            
+                            if final:
+                                self._images_artifact.add_file(file_path, name=rel_path)
+                                
+                        elif ext in video_extensions:
+                            # Log video
+                            video = wandb.Video(file_path)
+                            rel_path = os.path.relpath(file_path, work_dir)
+                            self.wandb_run.log({f"files/videos/{rel_path}": video}, step=solver.total_iter)
+                            
+                            if final:
+                                self._videos_artifact.add_file(file_path, name=rel_path)
+                                
+                        elif ext in data_extensions:
+                            # For data files, try to parse and log metrics if it's JSON
+                            if ext == '.json':
+                                try:
+                                    with open(file_path, 'r') as f:
+                                        data = json.load(f)
+                                        
+                                    # If it contains metrics, log them
+                                    if isinstance(data, dict):
+                                        metrics = {}
+                                        for k, v in data.items():
+                                            if isinstance(v, (int, float)):
+                                                rel_path = os.path.relpath(file_path, work_dir).replace('/', '_')
+                                                metrics[f"files/data/{rel_path}/{k}"] = v
+                                                
+                                        if metrics:
+                                            self.wandb_run.log(metrics, step=solver.total_iter)
+                                except:
+                                    pass
+                                    
+                            if final:
+                                rel_path = os.path.relpath(file_path, work_dir)
+                                self._data_artifact.add_file(file_path, name=rel_path)
+                                
+                        elif ext in model_extensions:
+                            # For model files, just add to artifact
+                            if final:
+                                rel_path = os.path.relpath(file_path, work_dir)
+                                self._models_artifact.add_file(file_path, name=rel_path)
+                                
+                        # Mark as logged
+                        self._logged_files.add(file_path)
+                        
+                    except Exception as e:
+                        self.logger.warning(f"Error logging file {file_path}: {e}")
+                        
+            # Log artifacts if final
+            if final:
+                if len(self._images_artifact.manifest.entries) > 0:
+                    self.wandb_run.log_artifact(self._images_artifact)
+                if len(self._videos_artifact.manifest.entries) > 0:
+                    self.wandb_run.log_artifact(self._videos_artifact)
+                if len(self._data_artifact.manifest.entries) > 0:
+                    self.wandb_run.log_artifact(self._data_artifact)
+                if len(self._models_artifact.manifest.entries) > 0:
+                    self.wandb_run.log_artifact(self._models_artifact)
+                    
+        except Exception as e:
+            self.logger.warning(f"Error scanning for files: {e}")
+            
+    def _create_final_summary_artifact(self, solver):
+        """Create a final summary artifact with all config and results."""
+        if we.rank != 0 or self.wandb_run is None:
+            return
+            
+        try:
+            # Create summary artifact
+            summary_artifact = wandb.Artifact(f"run_summary_{self.wandb_run.id}", type="summary")
+            
+            # Add config as YAML
+            config_path = os.path.join(solver.work_dir, "config_summary.yaml")
+            with open(config_path, 'w') as f:
+                yaml.dump(solver.cfg, f, default_flow_style=False)
+            summary_artifact.add_file(config_path, name="config.yaml")
+            
+            # Add final metrics
+            metrics_path = os.path.join(solver.work_dir, "final_metrics.json")
+            with open(metrics_path, 'w') as f:
+                json.dump(solver.epoch_outputs, f, indent=2)
+            summary_artifact.add_file(metrics_path, name="final_metrics.json")
+            
+            # Log the artifact
+            self.wandb_run.log_artifact(summary_artifact)
+            
+        except Exception as e:
+            self.logger.warning(f"Error creating final summary artifact: {e}")
+
+    def _log_checkpoint_artifact(self, solver, is_final=False):
+        """Log checkpoint as wandb artifact."""
+        if we.rank != 0 or self.wandb_run is None:
+            return
+            
+        try:
+            # Get checkpoint directory
+            ckpt_dir = solver.checkpoint_hook.ckpt_dir
+            
+            # Determine which checkpoint to log
+            if is_final:
+                ckpt_name = "final"
+                ckpt_path = os.path.join(ckpt_dir, f"{ckpt_name}.pth")
+            else:
+                ckpt_name = f"epoch_{solver.epoch}"
+                ckpt_path = os.path.join(ckpt_dir, f"{ckpt_name}.pth")
+                
+            # Check if checkpoint exists
+            if not os.path.exists(ckpt_path):
+                return
+                
+            # Create artifact
+            artifact = wandb.Artifact(
+                name=f"checkpoint_{ckpt_name}",
+                type="model",
+                description=f"Model checkpoint at {ckpt_name}"
+            )
+            
+            # Add metadata
+            artifact.metadata = {
+                "epoch": solver.epoch,
+                "iteration": solver.total_iter,
+                "timestamp": time.time(),
+            }
+            
+            # Add metrics if available
+            if hasattr(solver, 'epoch_outputs') and solver.epoch_outputs:
+                for k, v in solver.epoch_outputs.items():
+                    if isinstance(v, (int, float)) or (isinstance(v, list) and len(v) > 0 and isinstance(v[0], (int, float))):
+                        val = v[0] if isinstance(v, list) else v
+                        artifact.metadata[k] = val
+                        
+            # Add file to artifact
+            artifact.add_file(ckpt_path, name=f"{ckpt_name}.pth")
+            
+            # Log artifact
+            self.wandb_run.log_artifact(artifact)
+            
+        except Exception as e:
+            self.logger.warning(f"Error logging checkpoint artifact: {e}")
 
     def _flatten_config(self, cfg: Dict[str, Any], prefix: str = '') -> Dict[str, Any]:
         """Flatten nested configuration for wandb logging."""

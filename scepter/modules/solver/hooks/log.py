@@ -111,26 +111,53 @@ def _print_iter_log(solver, outputs, final=False, start_time=0, mode=None):
             # Add iteration/step info
             current_iter = solver.total_iter + (0 if final else 1)
             wandb_metrics["global_step"] = current_iter
+            wandb_metrics[f"{mode}/iter_number"] = current_iter
             
-            # Process all metrics from outputs
+            # Add detailed training progress metrics
+            wandb_metrics[f"{mode}/progress_percent"] = percent * 100
+            wandb_metrics[f"{mode}/epoch"] = solver.epoch
+            if solver.max_epochs > 0:
+                wandb_metrics[f"{mode}/epoch_progress"] = (solver.epoch + (solver.iter / solver.epoch_max_iter)) / solver.max_epochs * 100
+            
+            # Process all metrics from outputs with more detailed naming
             for k, v in outputs.items():
                 if isinstance(v, list) and len(v) >= 2:
                     # For metrics that have current and average values (like loss, time, etc.)
-                    # Log both the current value and the running average
+                    # Log both the current value and the running average with clear naming
+                    wandb_metrics[f"{mode}/{k}/current"] = _print_v(v[0], fmt='{:.6f}')
+                    wandb_metrics[f"{mode}/{k}/average"] = _print_v(v[1], fmt='{:.6f}')
+                    # Also log with simpler naming for backward compatibility
                     wandb_metrics[f"{mode}/{k}"] = _print_v(v[0], fmt='{:.6f}')
                     wandb_metrics[f"{mode}/{k}_avg"] = _print_v(v[1], fmt='{:.6f}')
-                elif k != 'data_time' and k != 'time':  # Skip logging timing info twice
+                else:
                     # For simple metrics, just log the value
                     wandb_metrics[f"{mode}/{k}"] = _print_v(v, fmt='{:.6f}')
             
-            # Add progress metrics
-            wandb_metrics[f"{mode}/progress_percent"] = percent * 100
+            # Add GPU memory usage if available
+            if torch.cuda.is_available():
+                try:
+                    for i in range(torch.cuda.device_count()):
+                        mem_allocated = torch.cuda.memory_allocated(i) / (1024 ** 2)  # MB
+                        mem_reserved = torch.cuda.memory_reserved(i) / (1024 ** 2)  # MB
+                        wandb_metrics[f"system/gpu{i}/memory_allocated_mb"] = mem_allocated
+                        wandb_metrics[f"system/gpu{i}/memory_reserved_mb"] = mem_reserved
+                except:
+                    pass
+            
+            # Add throughput metrics if available
+            if 'throughput' in outputs:
+                wandb_metrics[f"{mode}/throughput/samples_per_day"] = outputs['throughput']
+                if 'all_throughput' in outputs:
+                    wandb_metrics[f"{mode}/throughput/total_samples"] = outputs['all_throughput']
+            
+            # Log estimated time remaining
+            wandb_metrics[f"{mode}/time_remaining_seconds"] = (1 - percent) * (time.time() - start_time) / max(percent, 1e-8)
             
             # Log to wandb
             wandb.log(wandb_metrics, step=current_iter)
     except Exception as e:
-        # Silently continue if wandb logging fails
-        pass
+        # Log error but continue execution
+        solver.logger.warning(f"Error logging to wandb in _print_iter_log: {e}")
 
 
 def print_memory_status():
