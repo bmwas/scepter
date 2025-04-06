@@ -298,7 +298,6 @@ class WandbLogHook(Hook):
             return
 
         try:
-            # Log all metrics at every iteration
             # Get the outputs from the solver
             outputs = solver.iter_outputs.copy()
             extra_vars = solver.collect_log_vars()
@@ -329,6 +328,11 @@ class WandbLogHook(Hook):
                             
                         # Log both current and average loss
                         if current_loss is not None:
+                            # Log loss directly at the root level for better visibility in plots
+                            wandb_metrics[key] = current_loss
+                            wandb_metrics[f"{key}_avg"] = avg_loss if avg_loss is not None else current_loss
+                            
+                            # Also log with prefixes for organization
                             wandb_metrics[f"{solver.mode}/iter/{key}"] = current_loss
                             wandb_metrics[f"{solver.mode}/{key}/current"] = current_loss
                         if avg_loss is not None:
@@ -337,6 +341,8 @@ class WandbLogHook(Hook):
                         # Handle scalar loss
                         if isinstance(value, torch.Tensor):
                             value = value.item()
+                        # Log loss directly at the root level
+                        wandb_metrics[key] = value
                         wandb_metrics[f"{solver.mode}/iter/{key}"] = value
                         
                 # Handle other metrics
@@ -385,6 +391,7 @@ class WandbLogHook(Hook):
             if hasattr(solver, 'optimizer') and solver.optimizer is not None:
                 for i, param_group in enumerate(solver.optimizer.param_groups):
                     if 'lr' in param_group:
+                        wandb_metrics[f"lr/group_{i}"] = param_group['lr']
                         wandb_metrics[f"{solver.mode}/lr/group_{i}"] = param_group['lr']
 
             # Add system metrics
@@ -398,31 +405,40 @@ class WandbLogHook(Hook):
                 except Exception as e:
                     self.logger.warning(f"Error logging GPU memory: {e}")
 
+            # Always log to wandb regardless of interval for loss metrics
+            self.wandb_run.log(wandb_metrics, step=solver.total_iter)
+            
             # Only log parameter histograms at the specified interval to avoid excessive data
             if solver.total_iter % self.interval == 0:
                 # Track gradients and weights histograms for model parameters
                 if solver.is_train_mode and hasattr(solver, 'model') and solver.model is not None:
                     try:
                         # Log parameter histograms
+                        param_metrics = {}
                         for name, param in solver.model.named_parameters():
                             if param.requires_grad:
                                 # Log parameter values
-                                wandb_metrics[f"model/weights/{name}"] = wandb.Histogram(param.detach().cpu().numpy())
+                                param_metrics[f"model/weights/{name}"] = wandb.Histogram(param.detach().cpu().numpy())
                                 
                                 # Log parameter gradients if they exist
                                 if param.grad is not None:
-                                    wandb_metrics[f"model/gradients/{name}"] = wandb.Histogram(param.grad.detach().cpu().numpy())
+                                    param_metrics[f"model/gradients/{name}"] = wandb.Histogram(param.grad.detach().cpu().numpy())
                                 
                                 # Log gradient norms for each layer
                                 if param.grad is not None:
                                     grad_norm = torch.norm(param.grad.detach()).item()
-                                    wandb_metrics[f"model/gradient_norms/{name}"] = grad_norm
+                                    param_metrics[f"model/gradient_norms/{name}"] = grad_norm
+                        
+                        # Log parameter metrics separately to avoid overwhelming the main metrics
+                        if param_metrics:
+                            self.wandb_run.log(param_metrics, step=solver.total_iter)
                     except Exception as e:
                         self.logger.warning(f"Error logging parameter histograms: {e}")
 
             # Log activations if tracking is enabled
             if self.track_activations and solver.total_iter % self.activation_frequency == 0:
                 try:
+                    activation_metrics = {}
                     for name, activation in self.activations.items():
                         # Skip if activation is None or empty
                         if activation is None or activation.numel() == 0:
@@ -437,30 +453,33 @@ class WandbLogHook(Hook):
                             act_max = activation.max().item()
                             
                             # Log statistics
-                            wandb_metrics[f"activations/{name}/mean"] = act_mean
-                            wandb_metrics[f"activations/{name}/std"] = act_std
-                            wandb_metrics[f"activations/{name}/min"] = act_min
-                            wandb_metrics[f"activations/{name}/max"] = act_max
+                            activation_metrics[f"activations/{name}/mean"] = act_mean
+                            activation_metrics[f"activations/{name}/std"] = act_std
+                            activation_metrics[f"activations/{name}/min"] = act_min
+                            activation_metrics[f"activations/{name}/max"] = act_max
                             
                             # Log histogram
-                            wandb_metrics[f"activations/{name}/histogram"] = wandb.Histogram(
+                            activation_metrics[f"activations/{name}/histogram"] = wandb.Histogram(
                                 activation.detach().cpu().reshape(-1).numpy()
                             )
                             
                             # Log sparsity (percentage of zeros)
                             zeros = (activation == 0).float().mean().item() * 100
-                            wandb_metrics[f"activations/{name}/sparsity_pct"] = zeros
+                            activation_metrics[f"activations/{name}/sparsity_pct"] = zeros
+                    
+                    # Log activation metrics separately
+                    if activation_metrics:
+                        self.wandb_run.log(activation_metrics, step=solver.total_iter)
                 except Exception as e:
                     self.logger.warning(f"Error logging activations: {e}")
-
-            # Log to wandb
-            self.wandb_run.log(wandb_metrics, step=solver.total_iter)
             
             # Check for new files in /cache/save_data at every iteration
             self._scan_for_new_files(solver)
 
         except Exception as e:
             self.logger.warning(f"Error in WandbLogHook.after_iter: {e}")
+            import traceback
+            self.logger.warning(traceback.format_exc())
 
     def after_epoch(self, solver):
         """Log metrics after each epoch."""

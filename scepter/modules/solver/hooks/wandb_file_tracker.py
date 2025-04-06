@@ -104,13 +104,47 @@ class WandbFileTrackerHook(Hook):
             'description': 'Additional directories to watch (will be combined with WATCHED_DIRECTORIES)'
         },
         'CACHE_SAVE_DATA_SCAN_INTERVAL': {
-            'value': 5,  # Check every 5 seconds
+            'value': 1,  # Check every 1 second for maximum responsiveness
             'description': 'Scan interval for cache/save_data directory'
         },
         'CACHE_SAVE_DATA_PRIORITY': {
             'value': True,
             'description': 'Whether to prioritize scanning the cache/save_data directory'
-        }
+        },
+        'CACHE_SAVE_DATA_ARTIFACT_NAME': {
+            'value': 'cache_save_data',
+            'description': 'Name prefix for cache/save_data artifacts'
+        },
+        'CACHE_SAVE_DATA_ARTIFACT_TYPE': {
+            'value': 'model_outputs',
+            'description': 'Type of artifact for cache/save_data files'
+        },
+        'CACHE_SAVE_DATA_FILE_TYPES': {
+            'value': [
+                '.pth', '.pt', '.ckpt', '.bin', '.h5', '.model', '.weights',  # Model files
+                '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff',  # Images
+                '.mp4', '.avi', '.mov', '.webm',  # Videos
+                '.json', '.yaml', '.yml', '.txt', '.csv', '.tsv',  # Data files
+                '.npy', '.npz', '.pkl', '.pickle',  # NumPy/pickle files
+                '.log', '.out', '.err',  # Log files
+                '.py', '.sh', '.md', '.config', '.cfg',  # Config files
+                '.pdf', '.html', '.htm',  # Documents
+                '*'  # Catch-all to ensure we don't miss anything
+            ],
+            'description': 'File types to track in cache/save_data directory'
+        },
+        'FORCE_ARTIFACT_UPLOAD': {
+            'value': True,
+            'description': 'Whether to force upload artifacts even if they are large'
+        },
+        'EXTRACT_METRICS_FROM_FILES': {
+            'value': True,
+            'description': 'Whether to extract metrics from tracked files'
+        },
+        'METRICS_FILE_PATTERNS': {
+            'value': ['*metrics*.json', '*stats*.json', '*results*.json', '*.csv', '*.tsv'],
+            'description': 'File patterns to extract metrics from'
+        },
     }]
 
     def __init__(self, cfg, logger=None):
@@ -162,6 +196,30 @@ class WandbFileTrackerHook(Hook):
         self.recursive_tracking = cfg.get('RECURSIVE_TRACKING', True)
         self.track_checkpoint_metadata = cfg.get('TRACK_CHECKPOINT_METADATA', True)
         
+        # Cache/save_data directory specific settings
+        self.cache_save_data_scan_interval = cfg.get('CACHE_SAVE_DATA_SCAN_INTERVAL', 1)  # Check every 1 second for maximum responsiveness
+        self.cache_save_data_priority = cfg.get('CACHE_SAVE_DATA_PRIORITY', True)
+        self.cache_save_data_artifact_name = cfg.get('CACHE_SAVE_DATA_ARTIFACT_NAME', 'cache_save_data')
+        self.cache_save_data_artifact_type = cfg.get('CACHE_SAVE_DATA_ARTIFACT_TYPE', 'model_outputs')
+        self.cache_save_data_file_types = cfg.get('CACHE_SAVE_DATA_FILE_TYPES', [
+            '.pth', '.pt', '.ckpt', '.bin', '.h5', '.model', '.weights',  # Model files
+            '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff',  # Images
+            '.mp4', '.avi', '.mov', '.webm',  # Videos
+            '.json', '.yaml', '.yml', '.txt', '.csv', '.tsv',  # Data files
+            '.npy', '.npz', '.pkl', '.pickle',  # NumPy/pickle files
+            '.log', '.out', '.err',  # Log files
+            '.py', '.sh', '.md', '.config', '.cfg',  # Config files
+            '.pdf', '.html', '.htm',  # Documents
+            '*'  # Catch-all to ensure we don't miss anything
+        ])
+        self.force_artifact_upload = cfg.get('FORCE_ARTIFACT_UPLOAD', True)
+        
+        # Metrics extraction
+        self.extract_metrics_from_files = cfg.get('EXTRACT_METRICS_FROM_FILES', True)
+        self.metrics_file_patterns = cfg.get('METRICS_FILE_PATTERNS', 
+                                            ['*metrics*.json', '*stats*.json', '*results*.json', '*.csv', '*.tsv'])
+        self.tracked_metrics = {}
+        
         # Wandb run reference
         self.wandb_run = None
         
@@ -170,6 +228,7 @@ class WandbFileTrackerHook(Hook):
         
         # Last time we checked for new files
         self.last_check_time = time.time()
+        self.last_cache_check_time = time.time()
         
         # Artifact for storing tracked files
         self.results_artifact = None
@@ -182,6 +241,9 @@ class WandbFileTrackerHook(Hook):
         self.logs_artifact = None
         self.configs_artifact = None
         
+        # Special artifacts for cache/save_data
+        self.cache_save_data_artifact = None
+        
         # Track file counts for reporting
         self.file_counts = defaultdict(int)
         
@@ -193,9 +255,6 @@ class WandbFileTrackerHook(Hook):
             "./cache/save_data",             # Alternate relative path
             os.path.abspath("cache/save_data")  # Absolute path from current directory
         ]
-        self.cache_save_data_last_scan_time = 0
-        self.cache_save_data_scan_interval = cfg.get('CACHE_SAVE_DATA_SCAN_INTERVAL', 5)  # Check every 5 seconds
-        self.cache_save_data_priority = cfg.get('CACHE_SAVE_DATA_PRIORITY', True)  # Prioritize cache directory
 
     def before_solve(self, solver):
         """Connect to existing wandb run and initialize file tracking."""
@@ -249,21 +308,32 @@ class WandbFileTrackerHook(Hook):
                         name=f"configs_{wandb.run.id}", 
                         type="configs"
                     )
+                    
+                    # Create special artifact for cache/save_data
+                    self.cache_save_data_artifact = wandb.Artifact(
+                        name=f"{self.cache_save_data_artifact_name}_{wandb.run.id}",
+                        type=self.cache_save_data_artifact_type
+                    )
                 
                 # Discover additional model artifact directories
                 self._discover_artifact_directories(solver)
                 
+                # Initialize cache/save_data directory paths
+                self._initialize_cache_save_data_paths(solver)
+                
                 # Scan directories for existing files to establish baseline
                 self._scan_directories(solver)
                 
-                # Initialize cache/save_data directory paths
-                self._initialize_cache_save_data_paths(solver)
+                # Initial scan of cache/save_data directory
+                if self.cache_save_data_dir and FS.exists(self.cache_save_data_dir):
+                    solver.logger.info(f"WandbFileTrackerHook: Initial scan of cache/save_data directory: {self.cache_save_data_dir}")
+                    self._scan_cache_save_data_directory(solver)
                 
         except Exception as e:
             solver.logger.warning(f"Error in WandbFileTrackerHook.before_solve: {e}")
 
     def after_iter(self, solver):
-        """Check for new files at every iteration."""
+        """Check for new files after each iteration."""
         if we.rank != 0 or self.wandb_run is None:
             return
             
@@ -271,33 +341,97 @@ class WandbFileTrackerHook(Hook):
             # Initialize cache/save_data directory if not already done
             if self.cache_save_data_dir is None:
                 self._initialize_cache_save_data_paths(solver)
-            
-            # Always check the cache/save_data directory first if it exists and priority is set
-            current_time = time.time()
-            if self.cache_save_data_dir and FS.exists(self.cache_save_data_dir) and self.cache_save_data_priority:
-                elapsed_time_cache = current_time - self.cache_save_data_last_scan_time
-                if elapsed_time_cache >= self.cache_save_data_scan_interval:
-                    solver.logger.debug(f"WandbFileTrackerHook: Scanning cache/save_data directory at iteration {solver.total_iter}")
-                    self._scan_specific_directory(self.cache_save_data_dir, solver, recursive=True)
-                    self.cache_save_data_last_scan_time = current_time
-                    
-                    # Log artifacts immediately if new files were found
-                    if sum(self.file_counts.values()) > 0:
-                        self._log_artifacts(solver, is_final=False)
-            
-            # Check if it's time to scan based on iteration count
-            if solver.total_iter % self.iter_track_frequency == 0:
-                # Check if it's time to scan based on elapsed time
-                elapsed_time = current_time - self.last_check_time
                 
-                if elapsed_time >= self.track_interval:
-                    # Scan all watched directories
-                    self._scan_directories(solver)
-                    self.last_check_time = current_time
-                    
+            # Always check the cache/save_data directory at every iteration
+            # This ensures we capture all artifacts as soon as they're created
+            if self.cache_save_data_dir and FS.exists(self.cache_save_data_dir):
+                self._scan_cache_save_data_directory(solver)
+                
+            # Check other directories based on interval or iteration count
+            current_time = time.time()
+            if solver.total_iter % self.iter_track_frequency == 0 or current_time - self.last_check_time >= self.track_interval:
+                # Scan all watched directories
+                self._scan_directories(solver)
+                self.last_check_time = current_time
+                
         except Exception as e:
             solver.logger.warning(f"Error in WandbFileTrackerHook.after_iter: {e}")
 
+    def after_epoch(self, solver):
+        """Check for new files after each epoch and log artifacts."""
+        if we.rank != 0 or self.wandb_run is None:
+            return
+            
+        try:
+            # Scan directories for new files
+            self._scan_directories(solver)
+            
+            # Log artifacts at the end of each epoch
+            self._log_artifacts(solver, is_final=False)
+            
+            # Log summary statistics
+            self.wandb_run.log({
+                "epoch": solver.epoch,
+                "tracked_files/total_count": sum(self.file_counts.values()),
+                "tracked_files/epoch_summary": f"Epoch {solver.epoch}: {sum(self.file_counts.values())} files tracked"
+            }, step=solver.total_iter)
+                
+        except Exception as e:
+            solver.logger.warning(f"Error in WandbFileTrackerHook.after_epoch: {e}")
+            
+    def after_solve(self, solver):
+        """Final check for new files and log consolidated artifact."""
+        if we.rank != 0 or self.wandb_run is None:
+            return
+            
+        try:
+            solver.logger.info("WandbFileTrackerHook: Performing final scan for model artifacts...")
+            
+            # Force a thorough scan of all directories with higher max_files limit
+            self.max_files_per_sync = 1000  # Increase limit for final scan
+            
+            # Explicitly scan the cache/save_data directory
+            if self.cache_save_data_dir and FS.exists(self.cache_save_data_dir):
+                solver.logger.info(f"WandbFileTrackerHook: Final scan of cache/save_data directory: {self.cache_save_data_dir}")
+                self._scan_cache_save_data_directory(solver)
+            
+            # Explicitly scan the checkpoints directory
+            checkpoints_dir = os.path.join(solver.work_dir, 'checkpoints')
+            if FS.exists(checkpoints_dir):
+                solver.logger.info(f"WandbFileTrackerHook: Scanning checkpoints directory: {checkpoints_dir}")
+                self._scan_specific_directory(checkpoints_dir, solver)
+            
+            # Do one final discovery of artifact directories that might have been created during training
+            self._discover_artifact_directories(solver)
+            
+            # Final scan for new files in all watched directories
+            self._scan_directories(solver)
+            
+            # Log all artifacts
+            self._log_artifacts(solver, is_final=True)
+            
+            # Log final summary
+            solver.logger.info(f"WandbFileTrackerHook: Completed tracking with {sum(self.file_counts.values())} total files:")
+            for file_type, count in self.file_counts.items():
+                if count > 0:
+                    solver.logger.info(f"  - {file_type}: {count} files")
+                    
+            # Update wandb summary with final counts
+            self.wandb_run.summary.update({
+                "tracked_files/final_total": sum(self.file_counts.values()),
+                "tracked_files/final_images": self.file_counts['images'],
+                "tracked_files/final_videos": self.file_counts['videos'],
+                "tracked_files/final_data": self.file_counts['data'],
+                "tracked_files/final_models": self.file_counts['models'],
+                "tracked_files/final_logs": self.file_counts['logs'],
+                "tracked_files/final_configs": self.file_counts['configs'],
+                "tracked_files/final_other": self.file_counts['other'],
+                "tracked_files/final_cache_save_data": len(self.cache_save_data_artifact.metadata.get("contents", [])) if self.cache_save_data_artifact else 0
+            })
+                    
+        except Exception as e:
+            solver.logger.warning(f"Error in WandbFileTrackerHook.after_solve: {e}")
+    
     def _scan_directories(self, solver, max_files=None):
         """Scan watched directories for new files and track them in wandb.
         
@@ -640,352 +774,303 @@ class WandbFileTrackerHook(Hook):
         except Exception as e:
             solver.logger.warning(f"Error tracking file {file_path}: {e}")
 
-    def after_epoch(self, solver):
-        """Check for new files after each epoch and log artifacts."""
-        if we.rank != 0 or self.wandb_run is None:
-            return
-            
-        try:
-            # Scan directories for new files
-            self._scan_directories(solver)
-            
-            # Log artifacts at the end of each epoch
-            self._log_artifacts(solver, is_final=False)
-            
-            # Log summary statistics
-            self.wandb_run.log({
-                "epoch": solver.epoch,
-                "tracked_files/total_count": sum(self.file_counts.values()),
-                "tracked_files/epoch_summary": f"Epoch {solver.epoch}: {sum(self.file_counts.values())} files tracked"
-            }, step=solver.total_iter)
-                
-        except Exception as e:
-            solver.logger.warning(f"Error in WandbFileTrackerHook.after_epoch: {e}")
-            
-    def after_solve(self, solver):
-        """Final check for new files and log consolidated artifact."""
-        if we.rank != 0 or self.wandb_run is None:
-            return
-            
-        try:
-            solver.logger.info("WandbFileTrackerHook: Performing final scan for model artifacts...")
-            
-            # Force a thorough scan of all directories with higher max_files limit
-            self.max_files_per_sync = 1000  # Increase limit for final scan
-            
-            # Explicitly scan the cache/save_data directory
-            cache_dir = os.path.join(solver.work_dir, 'cache/save_data')
-            if FS.exists(cache_dir):
-                solver.logger.info(f"WandbFileTrackerHook: Scanning cache directory: {cache_dir}")
-                self._scan_specific_directory(cache_dir, solver, recursive=True)
-            
-            # Explicitly scan the checkpoints directory
-            checkpoints_dir = os.path.join(solver.work_dir, 'checkpoints')
-            if FS.exists(checkpoints_dir):
-                solver.logger.info(f"WandbFileTrackerHook: Scanning checkpoints directory: {checkpoints_dir}")
-                self._scan_specific_directory(checkpoints_dir, solver)
-            
-            # Do one final discovery of artifact directories that might have been created during training
-            self._discover_artifact_directories(solver)
-            
-            # Final scan for new files in all watched directories
-            self._scan_directories(solver)
-            
-            # Log all artifacts
-            self._log_artifacts(solver, is_final=True)
-            
-            # Log final summary
-            solver.logger.info(f"WandbFileTrackerHook: Completed tracking with {sum(self.file_counts.values())} total files:")
-            for file_type, count in self.file_counts.items():
-                if count > 0:
-                    solver.logger.info(f"  - {file_type}: {count} files")
-                    
-            # Update wandb summary with final counts
-            self.wandb_run.summary.update({
-                "tracked_files/final_total": sum(self.file_counts.values()),
-                "tracked_files/final_images": self.file_counts['images'],
-                "tracked_files/final_videos": self.file_counts['videos'],
-                "tracked_files/final_data": self.file_counts['data'],
-                "tracked_files/final_models": self.file_counts['models'],
-                "tracked_files/final_logs": self.file_counts['logs'],
-                "tracked_files/final_configs": self.file_counts['configs'],
-                "tracked_files/final_other": self.file_counts['other']
-            })
-                    
-        except Exception as e:
-            solver.logger.warning(f"Error in WandbFileTrackerHook.after_solve: {e}")
-    
-    def _scan_specific_directory(self, directory, solver, recursive=True, max_files=None):
+    def _scan_specific_directory(self, directory, solver, force=False):
         """Scan a specific directory for new files.
         
         Args:
-            directory: The directory to scan.
-            solver: The solver instance.
-            recursive: Whether to scan recursively.
-            max_files: Maximum number of files to scan.
+            directory: Directory to scan
+            solver: The solver instance
+            force: Whether to force scanning even if the interval hasn't passed
         """
         try:
+            # Skip if directory doesn't exist
             if not FS.exists(directory):
                 return
                 
-            # Check if this is the cache/save_data directory
-            is_cache_save_data = (
-                self.cache_save_data_dir and (
-                    directory.startswith(self.cache_save_data_dir) or
-                    directory == "/app/scepter/cache/save_data" or
-                    directory.endswith("/cache/save_data")
-                )
-            )
+            # Special handling for cache/save_data directory
+            is_cache_dir = self._is_cache_save_data_dir(directory)
+            
+            # Check if we should scan this directory based on interval
+            current_time = time.time()
+            if not force:
+                if is_cache_dir:
+                    # Use the cache-specific interval
+                    if current_time - self.last_cache_check_time < self.cache_save_data_scan_interval:
+                        return
+                    self.last_cache_check_time = current_time
+                else:
+                    # Use the general interval
+                    if current_time - self.last_check_time < self.track_interval:
+                        return
             
             # Get all files in the directory
             all_files = []
-            
-            # Walk through the directory
-            for root, dirs, files in self._walk_fs(directory):
-                # Skip excluded directories
-                dirs[:] = [d for d in dirs if not any(pattern in d for pattern in self.exclude_patterns)]
-                
-                # Process files
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    
-                    # Skip if already tracked
-                    if file_path in self.tracked_files:
-                        continue
+            if self.recursive_tracking:
+                # Get all files recursively
+                try:
+                    for root, dirs, files in self._walk_fs(directory):
+                        # Skip excluded directories
+                        dirs[:] = [d for d in dirs if not any(pattern in d for pattern in self.exclude_patterns)]
                         
-                    # For cache/save_data directory, track all files regardless of extension
-                    # For other directories, check file extension
-                    _, ext = os.path.splitext(file_path)
-                    if is_cache_save_data or ext.lower() in self.file_extensions:
-                        all_files.append(file_path)
-                    
-                # Stop recursion if not enabled
-                if not recursive:
-                    break
-                    
-            # Sort files by modification time (newest first)
-            all_files.sort(key=lambda x: os.path.getmtime(x) if os.path.exists(x) else 0, reverse=True)
-            
-            # Limit number of files if specified
-            if max_files is not None:
-                all_files = all_files[:max_files]
+                        # Process files
+                        for file in files:
+                            all_files.append(os.path.join(root, file))
+                except Exception as e:
+                    solver.logger.warning(f"Error walking directory {directory}: {e}")
+            else:
+                # Get only files in the current directory
+                try:
+                    all_files = [os.path.join(directory, f) for f in FS.listdir(directory) if FS.isfile(os.path.join(directory, f))]
+                except Exception as e:
+                    solver.logger.warning(f"Error listing directory {directory}: {e}")
                 
-            # Track each file
+            # Filter files based on extension for non-cache directories
+            if not is_cache_dir:
+                filtered_files = []
+                for file in all_files:
+                    _, ext = os.path.splitext(file)
+                    ext = ext.lower()
+                    if ext in self.tracked_extensions:
+                        filtered_files.append(file)
+                all_files = filtered_files
+            else:
+                # For cache directory, use the cache-specific file types
+                # but make sure we don't miss anything important
+                filtered_files = []
+                for file in all_files:
+                    _, ext = os.path.splitext(file)
+                    ext = ext.lower()
+                    file_name = os.path.basename(file)
+                    
+                    # Check if this file matches any of the patterns
+                    if ext in self.cache_save_data_file_types or '*' in self.cache_save_data_file_types:
+                        filtered_files.append(file)
+                    else:
+                        # Also check for pattern matches (e.g., *metrics*.json)
+                        for pattern in self.cache_save_data_file_types:
+                            if pattern.startswith('*') and fnmatch.fnmatch(file_name, pattern):
+                                filtered_files.append(file)
+                                break
+                
+                all_files = filtered_files
+                
+            # Track new files
             for file_path in all_files:
-                self._track_file(file_path, solver)
-                self.tracked_files.add(file_path)
-                
-            # Log summary
-            if all_files:
-                solver.logger.info(f"WandbFileTrackerHook: Tracked {len(all_files)} new files in {directory}")
+                if file_path not in self.tracked_files:
+                    # Track the file based on its location
+                    if is_cache_dir:
+                        try:
+                            self._track_cache_save_data_file(file_path, solver)
+                        except Exception as e:
+                            solver.logger.warning(f"Error tracking cache file {file_path}: {e}")
+                    else:
+                        try:
+                            self._track_file(file_path, solver)
+                        except Exception as e:
+                            solver.logger.warning(f"Error tracking file {file_path}: {e}")
+                        
+            # Log artifacts if needed
+            if len(all_files) > 0 and is_cache_dir:
+                # Always log cache artifacts after finding new files
+                try:
+                    self._log_artifacts(solver)
+                except Exception as e:
+                    solver.logger.warning(f"Error logging artifacts: {e}")
                 
         except Exception as e:
             solver.logger.warning(f"Error scanning directory {directory}: {e}")
+            
+    def _scan_cache_save_data_directory(self, solver):
+        """Dedicated method to scan the cache/save_data directory.
+        
+        Args:
+            solver: The solver instance
+        """
+        if not self.cache_save_data_dir or not FS.exists(self.cache_save_data_dir):
+            return
+            
+        try:
+            # Get all files in the directory
+            all_files = []
+            file_count_before = len(self.tracked_files)
+            
+            # Walk through the directory
+            try:
+                for root, dirs, files in self._walk_fs(self.cache_save_data_dir):
+                    # Skip excluded directories
+                    dirs[:] = [d for d in dirs if not any(pattern in d for pattern in self.exclude_patterns)]
+                    
+                    # Process all files in cache/save_data directory
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        
+                        # Skip if already tracked
+                        if file_path in self.tracked_files:
+                            continue
+                            
+                        # For cache/save_data, track all files regardless of extension
+                        all_files.append(file_path)
+            except Exception as e:
+                solver.logger.warning(f"Error walking cache/save_data directory: {e}")
+            
+            # Sort files by modification time (newest first)
+            try:
+                all_files.sort(key=lambda x: os.path.getmtime(x) if os.path.exists(x) else 0, reverse=True)
+            except Exception as e:
+                solver.logger.warning(f"Error sorting files by modification time: {e}")
+            
+            # Track each file
+            for file_path in all_files:
+                try:
+                    self._track_cache_save_data_file(file_path, solver)
+                    self.tracked_files[file_path] = time.time()
+                except Exception as e:
+                    solver.logger.warning(f"Error tracking file {file_path}: {e}")
+            
+            # Log summary if new files were found
+            new_files_count = len(all_files)
+            if new_files_count > 0:
+                solver.logger.info(f"WandbFileTrackerHook: Found {new_files_count} new files in cache/save_data directory")
+                
+                # Log the cache/save_data artifact immediately
+                if self.cache_save_data_artifact is not None:
+                    try:
+                        # Create a unique name for this version of the artifact
+                        artifact_name = f"{self.cache_save_data_artifact_name}"
+                        if hasattr(solver, 'total_iter'):
+                            artifact_name += f"_iter{solver.total_iter}"
+                        
+                        # Add additional metadata
+                        self.cache_save_data_artifact.metadata["logged_at"] = time.time()
+                        self.cache_save_data_artifact.metadata["iteration"] = solver.total_iter if hasattr(solver, 'total_iter') else 0
+                        self.cache_save_data_artifact.metadata["epoch"] = solver.epoch if hasattr(solver, 'epoch') else 0
+                        
+                        # Log the artifact
+                        self.wandb_run.log_artifact(
+                            self.cache_save_data_artifact,
+                            name=artifact_name,
+                            type=self.cache_save_data_artifact_type
+                        )
+                        
+                        # Create a new artifact for future files
+                        self.cache_save_data_artifact = wandb.Artifact(
+                            name=self.cache_save_data_artifact_name,
+                            type=self.cache_save_data_artifact_type
+                        )
+                        
+                        solver.logger.info(f"WandbFileTrackerHook: Logged cache/save_data artifact with {new_files_count} new files")
+                        
+                        # Log summary metrics
+                        self.wandb_run.log({
+                            "cache_save_data/files_count": len(self.tracked_files),
+                            "cache_save_data/new_files": new_files_count,
+                            "cache_save_data/last_scan": time.time()
+                        }, step=solver.total_iter)
+                    except Exception as e:
+                        solver.logger.warning(f"Error logging cache/save_data artifact: {e}")
+                
+        except Exception as e:
+            solver.logger.warning(f"Error scanning cache/save_data directory: {e}")
 
+    def _track_cache_save_data_file(self, file_path, solver):
+        """Track a file from the cache/save_data directory.
+        
+        Args:
+            file_path: Path to the file to track
+            solver: The solver instance
+        """
+        try:
+            # Skip if already tracked
+            if file_path in self.tracked_files:
+                return
+                
+            # Get file extension and size
+            _, ext = os.path.splitext(file_path)
+            ext = ext.lower()
+            
+            # Get file size in MB
+            try:
+                file_size_bytes = os.path.getsize(file_path)
+                file_size_mb = file_size_bytes / (1024 * 1024)
+            except Exception:
+                file_size_mb = 0
+                
+            # Get relative path for artifact
+            try:
+                rel_path = os.path.relpath(file_path, self.cache_save_data_dir)
+            except ValueError:
+                # Fall back to basename if relpath fails
+                rel_path = os.path.basename(file_path)
+                
+            # Get local path for adding to artifact
+            try:
+                with FS.get_file_to_local(file_path) as local_path:
+                    # Add to cache/save_data artifact
+                    if self.cache_save_data_artifact is not None:
+                        # Mark this file as tracked before adding to artifact
+                        # This prevents duplicate tracking if the process takes time
+                        self.tracked_files[file_path] = time.time()
+                        
+                        # Log the new file
+                        solver.logger.info(f"Tracking new cache/save_data file: {rel_path} ({file_size_mb:.2f} MB)")
+                        
+                        # Add to the main cache/save_data artifact
+                        self.cache_save_data_artifact.add_file(local_path, name=rel_path)
+                        
+                        # Add metadata
+                        metadata = {
+                            "name": rel_path,
+                            "path": file_path,
+                            "size_mb": file_size_mb,
+                            "extension": ext,
+                            "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                            "epoch": solver.epoch if hasattr(solver, 'epoch') else 0,
+                            "timestamp": time.time(),
+                            "modified_time": os.path.getmtime(local_path)
+                        }
+{{ ... }}
     def _log_artifacts(self, solver, is_final=False):
         """Log all artifacts to wandb.
         
         Args:
             solver: The solver instance
-            is_final: Whether this is the final logging at the end of training
+            is_final: Whether this is the final logging (end of training)
         """
-        if we.rank != 0 or self.wandb_run is None:
-            return
-            
         try:
-            # Create a new version of artifacts for final logging
-            if is_final:
-                # Create new artifact versions for final logging
-                if self.images_artifact is not None and len(self.images_artifact.metadata.get("contents", [])) > 0:
-                    final_images_artifact = wandb.Artifact(
-                        name=f"images_final_{wandb.run.id}", 
-                        type="images"
+            if we.rank != 0 or self.wandb_run is None:
+                return
+                
+            # Always log the cache/save_data artifact if it exists and has files
+            if self.cache_save_data_artifact is not None and len(self.cache_save_data_artifact.metadata.get("contents", [])) > 0:
+                try:
+                    # Create a unique name for this version of the artifact
+                    artifact_name = f"{self.cache_save_data_artifact_name}"
+                    if hasattr(solver, 'total_iter'):
+                        artifact_name += f"_iter{solver.total_iter}"
+                    
+                    # Add additional metadata
+                    self.cache_save_data_artifact.metadata["logged_at"] = time.time()
+                    self.cache_save_data_artifact.metadata["iteration"] = solver.total_iter if hasattr(solver, 'total_iter') else 0
+                    self.cache_save_data_artifact.metadata["epoch"] = solver.epoch if hasattr(solver, 'epoch') else 0
+                    
+                    # Log the artifact
+                    self.wandb_run.log_artifact(
+                        self.cache_save_data_artifact,
+                        name=artifact_name,
+                        type=self.cache_save_data_artifact_type
                     )
                     
-                    # Copy files from the existing artifact
-                    for file_info in self.images_artifact.metadata.get("contents", []):
-                        if "path" in file_info:
-                            final_images_artifact.add_reference(file_info["path"], name=file_info.get("name", ""))
-                    
-                    # Log the final artifact
-                    self.wandb_run.log_artifact(final_images_artifact)
-                    
-                if self.models_artifact is not None and len(self.models_artifact.metadata.get("contents", [])) > 0:
-                    final_models_artifact = wandb.Artifact(
-                        name=f"models_final_{wandb.run.id}", 
-                        type="models"
+                    # Create a new artifact for future files
+                    self.cache_save_data_artifact = wandb.Artifact(
+                        name=self.cache_save_data_artifact_name,
+                        type=self.cache_save_data_artifact_type
                     )
                     
-                    # Copy files from the existing artifact
-                    for file_info in self.models_artifact.metadata.get("contents", []):
-                        if "path" in file_info:
-                            final_models_artifact.add_reference(file_info["path"], name=file_info.get("name", ""))
+                    # Reset the file counts for this artifact type
+                    self.file_counts['cache_save_data'] = 0
                     
-                    # Log the final artifact
-                    self.wandb_run.log_artifact(final_models_artifact)
-                
-                # Log the consolidated results artifact
-                if self.results_artifact is not None and len(self.results_artifact.metadata.get("contents", [])) > 0:
-                    self.wandb_run.log_artifact(self.results_artifact)
-                    
-                solver.logger.info("WandbFileTrackerHook: Logged final artifacts to wandb")
-            else:
-                # Log type-specific artifacts
-                if self.images_artifact is not None and len(self.images_artifact.metadata.get("contents", [])) > 0:
-                    self.wandb_run.log_artifact(self.images_artifact)
-                    
-                if self.videos_artifact is not None and len(self.videos_artifact.metadata.get("contents", [])) > 0:
-                    self.wandb_run.log_artifact(self.videos_artifact)
-                    
-                if self.data_artifact is not None and len(self.data_artifact.metadata.get("contents", [])) > 0:
-                    self.wandb_run.log_artifact(self.data_artifact)
-                    
-                if self.models_artifact is not None and len(self.models_artifact.metadata.get("contents", [])) > 0:
-                    self.wandb_run.log_artifact(self.models_artifact)
-                
-                if self.logs_artifact is not None and len(self.logs_artifact.metadata.get("contents", [])) > 0:
-                    self.wandb_run.log_artifact(self.logs_artifact)
-                
-                if self.configs_artifact is not None and len(self.configs_artifact.metadata.get("contents", [])) > 0:
-                    self.wandb_run.log_artifact(self.configs_artifact)
-                    
-        except Exception as e:
-            solver.logger.warning(f"Error logging artifacts: {e}")
-
-    def _walk_fs(self, directory):
-        """Walk filesystem recursively, handling both local and remote filesystems.
-        
-        Args:
-            directory: Directory path to walk
-            
-        Yields:
-            Tuples of (root, dirs, files) similar to os.walk
-        """
-        try:
-            # Check if directory exists
-            if not FS.exists(directory):
-                return
-            
-            # Get all files and directories in the current directory
-            with FS.get_dir_to_local_dir(directory) as local_dir:
-                for root, dirs, files in os.walk(local_dir):
-                    # Convert local paths back to remote paths
-                    remote_root = os.path.join(directory, os.path.relpath(root, local_dir))
-                    yield remote_root, dirs, files
-                    
-                    # If not recursive, don't go into subdirectories
-                    if not self.recursive_tracking:
-                        break
-        except Exception as e:
-            # Handle errors gracefully
-            if hasattr(self, 'logger') and self.logger:
-                self.logger.warning(f"Error walking directory {directory}: {e}")
-            else:
-                warnings.warn(f"Error walking directory {directory}: {e}")
-
-    def _discover_artifact_directories(self, solver):
-        """Discover additional directories that might contain model artifacts.
-        
-        This method looks for common directories where model artifacts might be stored
-        in the scepter codebase and adds them to the watched directories list.
-        
-        Args:
-            solver: The solver instance
-        """
-        try:
-            # List of potential artifact directories to check
-            potential_dirs = [
-                # Common model output directories
-                os.path.join(solver.work_dir, 'outputs'),
-                os.path.join(solver.work_dir, 'results'),
-                os.path.join(solver.work_dir, 'models'),
-                os.path.join(solver.work_dir, 'weights'),
-                os.path.join(solver.work_dir, 'artifacts'),
-                os.path.join(solver.work_dir, 'logs'),
-                os.path.join(solver.work_dir, 'metrics'),
-                os.path.join(solver.work_dir, 'visualizations'),
-                os.path.join(solver.work_dir, 'embeddings'),
-                os.path.join(solver.work_dir, 'features'),
-                
-                # Specific to scepter codebase
-                os.path.join(solver.work_dir, 'cache'),
-                os.path.join(solver.work_dir, 'cache/save_data'),
-                os.path.join(solver.work_dir, 'cache/checkpoints'),
-                os.path.join(solver.work_dir, 'cache/models'),
-                os.path.join(solver.work_dir, 'cache/results'),
-                
-                # Method-specific directories
-                os.path.join(solver.work_dir, 'methods/scedit/outputs'),
-                os.path.join(solver.work_dir, 'methods/studio/outputs'),
-            ]
-            
-            # Check if directories exist and add them to watched_directories
-            for dir_path in potential_dirs:
-                if FS.exists(dir_path) and dir_path not in self.watched_directories:
-                    self.watched_directories.append(dir_path)
-                    solver.logger.info(f"WandbFileTrackerHook: Discovered artifact directory: {dir_path}")
-            
-            # Check if the solver has a specific output directory defined
-            if hasattr(solver, 'output_dir') and solver.output_dir:
-                output_dir = solver.output_dir
-                if FS.exists(output_dir) and output_dir not in self.watched_directories:
-                    self.watched_directories.append(output_dir)
-                    solver.logger.info(f"WandbFileTrackerHook: Added solver output directory: {output_dir}")
-            
-            # Check for model-specific directories if solver has a model attribute
-            if hasattr(solver, 'model'):
-                # If the model has a save_dir attribute
-                if hasattr(solver.model, 'save_dir') and solver.model.save_dir:
-                    save_dir = solver.model.save_dir
-                    if FS.exists(save_dir) and save_dir not in self.watched_directories:
-                        self.watched_directories.append(save_dir)
-                        solver.logger.info(f"WandbFileTrackerHook: Added model save directory: {save_dir}")
-            
-            solver.logger.info(f"WandbFileTrackerHook: Watching {len(self.watched_directories)} directories for artifacts")
-            
-        except Exception as e:
-            solver.logger.warning(f"Error discovering artifact directories: {e}")
-
-    def _initialize_cache_save_data_paths(self, solver):
-        """Initialize the cache/save_data directory paths.
-        
-        Args:
-            solver: The solver instance.
-        """
-        # Try all potential paths for the cache/save_data directory
-        potential_paths = [
-            # Docker container path
-            "/app/scepter/cache/save_data",
-            
-            # Work directory paths
-            os.path.join(solver.work_dir, 'cache/save_data') if hasattr(solver, 'work_dir') else None,
-            
-            # Relative paths
-            "cache/save_data",
-            "./cache/save_data",
-            
-            # Absolute path from current directory
-            os.path.abspath("cache/save_data")
-        ]
-        
-        # Filter out None values
-        potential_paths = [p for p in potential_paths if p]
-        
-        # Try each path
-        for path in potential_paths:
-            if FS.exists(path):
-                self.cache_save_data_dir = path
-                if self.cache_save_data_dir not in self.watched_directories:
-                    self.watched_directories.append(self.cache_save_data_dir)
-                    solver.logger.info(f"WandbFileTrackerHook: Added cache/save_data directory: {self.cache_save_data_dir}")
-                return
-        
-        # If we get here, we couldn't find the directory
-        solver.logger.warning("WandbFileTrackerHook: Could not find cache/save_data directory. Will keep trying.")
-
-    @staticmethod
-    def get_config_template():
-        return dict_to_yaml('HOOK',
-                            __class__.__name__,
-                            WandbFileTrackerHook.para_dict,
-                            set_name=True)
+                    # Log a message
+                    solver.logger.info(f"Logged cache/save_data artifact with {len(self.cache_save_data_artifact.metadata.get('contents', []))} files")
+                except Exception as e:
+                    solver.logger.warning(f"Error logging cache/save_data artifact: {e}")
+{{ ... }}
