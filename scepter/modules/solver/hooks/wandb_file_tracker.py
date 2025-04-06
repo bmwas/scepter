@@ -1079,7 +1079,8 @@ class WandbFileTrackerHook(Hook):
                         # Extract metrics from file if configured
                         if self.extract_metrics_from_files:
                             self._extract_metrics_from_file(file_path, solver)
-
+            except Exception as e:
+                solver.logger.warning(f"Error processing local file {file_path}: {e}")
         except Exception as e:
             solver.logger.warning(f"Error tracking file {file_path}: {e}")
 
