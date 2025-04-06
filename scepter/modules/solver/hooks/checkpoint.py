@@ -5,6 +5,7 @@ import os
 import os.path as osp
 import sys
 import warnings
+import time
 
 import torch
 import torch.distributed as du
@@ -118,6 +119,40 @@ class CheckpointHook(Hook):
                     with FS.put_to(save_path) as local_path:
                         with open(local_path, 'wb') as f:
                             torch.save(checkpoint, f)
+                    
+                    # Log checkpoint to wandb if available
+                    try:
+                        import wandb
+                        if wandb.run is not None:
+                            artifact_name = f"model-checkpoint-step-{solver.total_iter + 1}"
+                            checkpoint_artifact = wandb.Artifact(
+                                name=artifact_name,
+                                type="model-checkpoint",
+                                description=f"Model checkpoint at step {solver.total_iter + 1}"
+                            )
+                            
+                            # Add metadata to the artifact
+                            checkpoint_artifact.metadata = {
+                                "step": solver.total_iter + 1,
+                                "epoch": solver.epoch,
+                                "timestamp": time.time(),
+                                "is_final": solver.total_iter == solver.max_steps - 1
+                            }
+                            
+                            # Add performance metrics if available
+                            if hasattr(solver, 'iter_outputs'):
+                                for key, value in solver.iter_outputs.items():
+                                    if isinstance(value, (int, float)):
+                                        checkpoint_artifact.metadata[f"metric_{key}"] = value
+                            
+                            # Add the checkpoint file to the artifact
+                            checkpoint_artifact.add_file(local_path, name=osp.basename(save_path))
+                            
+                            # Log the artifact to wandb
+                            wandb.run.log_artifact(checkpoint_artifact)
+                            solver.logger.info(f"Logged checkpoint artifact to wandb: {artifact_name}")
+                    except Exception as e:
+                        solver.logger.warning(f"Failed to log checkpoint to wandb: {e}")
                 del checkpoint
 
             from swift import SwiftModel
@@ -141,11 +176,49 @@ class CheckpointHook(Hook):
                             state_dict_new.update(state_dict_adapter)
                         solver_model.save_pretrained(local_folder, state_dict=state_dict_new)
                         FS.put_dir_from_local_dir(local_folder, save_path)
+                        
+                        # Log model files to wandb if available
+                        try:
+                            import wandb
+                            if wandb.run is not None:
+                                model_artifact = wandb.Artifact(
+                                    name=f"model-files-step-{solver.total_iter + 1}",
+                                    type="model-files",
+                                    description=f"Model files at step {solver.total_iter + 1}"
+                                )
+                                
+                                # Add model directory to artifact
+                                model_artifact.add_dir(local_folder, name="model")
+                                
+                                # Log the artifact to wandb
+                                wandb.run.log_artifact(model_artifact)
+                                solver.logger.info(f"Logged model files artifact to wandb at step {solver.total_iter + 1}")
+                        except Exception as e:
+                            solver.logger.warning(f"Failed to log model files to wandb: {e}")
                 else:
                     if we.rank == 0:
                         local_folder, _ = FS.map_to_local(save_path)
                         solver_model.save_pretrained(local_folder)
                         FS.put_dir_from_local_dir(local_folder, save_path)
+                        
+                        # Log model files to wandb if available
+                        try:
+                            import wandb
+                            if wandb.run is not None:
+                                model_artifact = wandb.Artifact(
+                                    name=f"model-files-step-{solver.total_iter + 1}",
+                                    type="model-files",
+                                    description=f"Model files at step {solver.total_iter + 1}"
+                                )
+                                
+                                # Add model directory to artifact
+                                model_artifact.add_dir(local_folder, name="model")
+                                
+                                # Log the artifact to wandb
+                                wandb.run.log_artifact(model_artifact)
+                                solver.logger.info(f"Logged model files artifact to wandb at step {solver.total_iter + 1}")
+                        except Exception as e:
+                            solver.logger.warning(f"Failed to log model files to wandb: {e}")
             else:
                 if hasattr(solver, 'save_pretrained'):
                     save_path = osp.join(
@@ -168,6 +241,25 @@ class CheckpointHook(Hook):
                             json.dump(cfg, open(local_path, 'w'))
                         FS.put_dir_from_local_dir(local_folder, save_path)
                     del ckpt
+
+                    # Log model files to wandb if available
+                    try:
+                        import wandb
+                        if wandb.run is not None:
+                            model_artifact = wandb.Artifact(
+                                name=f"model-files-step-{solver.total_iter + 1}",
+                                type="model-files",
+                                description=f"Model files at step {solver.total_iter + 1}"
+                            )
+                            
+                            # Add model directory to artifact
+                            model_artifact.add_dir(local_folder, name="model")
+                            
+                            # Log the artifact to wandb
+                            wandb.run.log_artifact(model_artifact)
+                            solver.logger.info(f"Logged model files artifact to wandb at step {solver.total_iter + 1}")
+                    except Exception as e:
+                        solver.logger.warning(f"Failed to log model files to wandb: {e}")
 
                 if self.save_last and solver.total_iter == solver.max_steps - 1:
                     with FS.get_fs_client(save_path) as client:
