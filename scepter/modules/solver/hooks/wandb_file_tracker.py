@@ -183,6 +183,10 @@ class WandbFileTrackerHook(Hook):
         
         # Special attention to cache/save_data directory
         self.cache_save_data_dir = None
+        self.cache_save_data_paths = [
+            "/app/scepter/cache/save_data",  # Docker container path
+            "cache/save_data"                # Relative path
+        ]
         self.cache_save_data_last_scan_time = 0
         self.cache_save_data_scan_interval = cfg.get('CACHE_SAVE_DATA_SCAN_INTERVAL', 10)  # Check every 10 seconds
 
@@ -245,6 +249,9 @@ class WandbFileTrackerHook(Hook):
                 # Scan directories for existing files to establish baseline
                 self._scan_directories(solver)
                 
+                # Initialize cache/save_data directory paths
+                self._initialize_cache_save_data_paths(solver)
+                
         except Exception as e:
             solver.logger.warning(f"Error in WandbFileTrackerHook.before_solve: {e}")
 
@@ -256,10 +263,7 @@ class WandbFileTrackerHook(Hook):
         try:
             # Initialize cache/save_data directory if not already done
             if self.cache_save_data_dir is None:
-                self.cache_save_data_dir = os.path.join(solver.work_dir, 'cache/save_data')
-                if FS.exists(self.cache_save_data_dir) and self.cache_save_data_dir not in self.watched_directories:
-                    self.watched_directories.append(self.cache_save_data_dir)
-                    solver.logger.info(f"WandbFileTrackerHook: Added cache/save_data directory: {self.cache_save_data_dir}")
+                self._initialize_cache_save_data_paths(solver)
             
             # Check if it's time to scan based on iteration count
             if solver.total_iter % self.iter_track_frequency == 0:
@@ -274,9 +278,9 @@ class WandbFileTrackerHook(Hook):
                 
                 # Always check the cache/save_data directory at higher frequency
                 elapsed_time_cache = current_time - self.cache_save_data_last_scan_time
-                if FS.exists(self.cache_save_data_dir) and elapsed_time_cache >= self.cache_save_data_scan_interval:
+                if self.cache_save_data_dir and FS.exists(self.cache_save_data_dir) and elapsed_time_cache >= self.cache_save_data_scan_interval:
                     solver.logger.debug(f"WandbFileTrackerHook: Scanning cache/save_data directory at iteration {solver.total_iter}")
-                    self._scan_specific_directory(self.cache_save_data_dir, solver)
+                    self._scan_specific_directory(self.cache_save_data_dir, solver, recursive=True)
                     self.cache_save_data_last_scan_time = current_time
                     
                     # Log artifacts immediately if new files were found
@@ -431,7 +435,16 @@ class WandbFileTrackerHook(Hook):
                 rel_path = os.path.basename(file_path)
                 
             # Check if this is from cache/save_data directory
-            is_cache_save_data = self.cache_save_data_dir and file_path.startswith(self.cache_save_data_dir)
+            is_cache_save_data = (
+                self.cache_save_data_dir and file_path.startswith(self.cache_save_data_dir) or
+                file_path.startswith("/app/scepter/cache/save_data") or
+                "/cache/save_data/" in file_path
+            )
+            
+            # For cache/save_data, we want to track all files regardless of extension
+            # For other directories, we only track files with specific extensions
+            if not is_cache_save_data and ext not in self.file_extensions:
+                return
             
             # Determine file type and track accordingly
             if ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff']:
@@ -655,7 +668,7 @@ class WandbFileTrackerHook(Hook):
             cache_dir = os.path.join(solver.work_dir, 'cache/save_data')
             if FS.exists(cache_dir):
                 solver.logger.info(f"WandbFileTrackerHook: Scanning cache directory: {cache_dir}")
-                self._scan_specific_directory(cache_dir, solver)
+                self._scan_specific_directory(cache_dir, solver, recursive=True)
             
             # Explicitly scan the checkpoints directory
             checkpoints_dir = os.path.join(solver.work_dir, 'checkpoints')
@@ -693,52 +706,73 @@ class WandbFileTrackerHook(Hook):
         except Exception as e:
             solver.logger.warning(f"Error in WandbFileTrackerHook.after_solve: {e}")
     
-    def _scan_specific_directory(self, directory, solver):
-        """Scan a specific directory for files and track them.
+    def _scan_specific_directory(self, directory, solver, recursive=True, max_files=None):
+        """Scan a specific directory for new files.
         
         Args:
-            directory: The directory to scan
-            solver: The solver instance
+            directory: The directory to scan.
+            solver: The solver instance.
+            recursive: Whether to scan recursively.
+            max_files: Maximum number of files to scan.
         """
-        if not FS.exists(directory):
-            return
-            
         try:
-            files_tracked = 0
+            if not FS.exists(directory):
+                return
+                
+            # Check if this is the cache/save_data directory
+            is_cache_save_data = (
+                self.cache_save_data_dir and directory.startswith(self.cache_save_data_dir) or
+                directory == "/app/scepter/cache/save_data" or
+                directory.endswith("/cache/save_data")
+            )
+            
+            # Get all files in the directory
+            all_files = []
             
             # Walk through the directory
-            for root, _, files in self._walk_fs(directory):
+            for root, dirs, files in os.walk(directory):
+                # Skip excluded directories
+                if any(exclude in root for exclude in self.exclude_patterns):
+                    continue
+                    
+                # Add all files
                 for file in files:
-                    # Check extension
-                    _, ext = os.path.splitext(file)
-                    if ext.lower() not in self.file_extensions:
-                        continue
-                        
-                    # Full path to the file
                     file_path = os.path.join(root, file)
                     
                     # Skip if already tracked
                     if file_path in self.tracked_files:
                         continue
                         
-                    # Skip excluded patterns
-                    if any(pattern in file_path for pattern in self.exclude_patterns):
+                    # Check file extension if not in cache/save_data
+                    _, ext = os.path.splitext(file_path)
+                    if not is_cache_save_data and ext.lower() not in self.file_extensions:
                         continue
                         
-                    # Track the file
-                    try:
-                        self._track_file(file_path, solver)
-                        self.tracked_files.add(file_path)
-                        files_tracked += 1
-                    except Exception as e:
-                        solver.logger.warning(f"Error tracking file {file_path}: {e}")
+                    all_files.append(file_path)
+                    
+                # Stop recursion if not enabled
+                if not recursive:
+                    break
+                    
+            # Sort files by modification time (newest first)
+            all_files.sort(key=lambda x: os.path.getmtime(x) if os.path.exists(x) else 0, reverse=True)
             
-            if files_tracked > 0:
-                solver.logger.info(f"WandbFileTrackerHook: Tracked {files_tracked} new files from {directory}")
+            # Limit number of files if specified
+            if max_files is not None:
+                all_files = all_files[:max_files]
+                
+            # Track each file
+            for file_path in all_files:
+                self._track_file(file_path, solver)
+                self.tracked_files.add(file_path)
+                
+            # Log summary
+            if all_files:
+                solver.logger.info(f"WandbFileTrackerHook: Tracked {len(all_files)} new files in {directory}")
                 
         except Exception as e:
-            solver.logger.warning(f"Error scanning specific directory {directory}: {e}")
-            
+            solver.logger.warning(f"Error scanning directory {directory}: {e}")
+
     def _log_artifacts(self, solver, is_final=False):
         """Log all artifacts to wandb.
         
@@ -902,6 +936,40 @@ class WandbFileTrackerHook(Hook):
             
         except Exception as e:
             solver.logger.warning(f"Error discovering artifact directories: {e}")
+
+    def _initialize_cache_save_data_paths(self, solver):
+        """Initialize the cache/save_data directory paths.
+        
+        Args:
+            solver: The solver instance.
+        """
+        # Check for /app/scepter/cache/save_data (Docker container path)
+        if FS.exists("/app/scepter/cache/save_data"):
+            self.cache_save_data_dir = "/app/scepter/cache/save_data"
+            if self.cache_save_data_dir not in self.watched_directories:
+                self.watched_directories.append(self.cache_save_data_dir)
+                solver.logger.info(f"WandbFileTrackerHook: Added Docker cache/save_data directory: {self.cache_save_data_dir}")
+            return
+            
+        # Check for work_dir/cache/save_data
+        if hasattr(solver, 'work_dir'):
+            work_dir_cache = os.path.join(solver.work_dir, 'cache/save_data')
+            if FS.exists(work_dir_cache):
+                self.cache_save_data_dir = work_dir_cache
+                if self.cache_save_data_dir not in self.watched_directories:
+                    self.watched_directories.append(self.cache_save_data_dir)
+                    solver.logger.info(f"WandbFileTrackerHook: Added work_dir cache/save_data directory: {self.cache_save_data_dir}")
+                return
+                
+        # Check for relative cache/save_data
+        if FS.exists("cache/save_data"):
+            self.cache_save_data_dir = os.path.abspath("cache/save_data")
+            if self.cache_save_data_dir not in self.watched_directories:
+                self.watched_directories.append(self.cache_save_data_dir)
+                solver.logger.info(f"WandbFileTrackerHook: Added relative cache/save_data directory: {self.cache_save_data_dir}")
+            return
+            
+        solver.logger.warning("WandbFileTrackerHook: Could not find cache/save_data directory")
 
     @staticmethod
     def get_config_template():
