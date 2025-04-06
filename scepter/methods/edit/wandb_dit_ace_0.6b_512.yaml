@@ -130,6 +130,11 @@ SOLVER:
     EPS: 1e-10
     WEIGHT_DECAY: 5e-4
   #
+  LR_SCHEDULER:
+    NAME: StepLR
+    STEP_SIZE: 100
+    GAMMA: 0.5
+  #
   TRAIN_DATA:
     NAME: ImageTextPairMSDatasetForACE
     MODE: train
