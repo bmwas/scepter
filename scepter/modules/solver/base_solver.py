@@ -265,7 +265,10 @@ class BaseSolver(object, metaclass=ABCMeta):
     }
 
     def __init__(self, cfg, logger=None):
-        # initialize some hyperparameters
+        # Initialize wandb at the very beginning, before anything else
+        self._initialize_wandb_immediately()
+        
+        # Continue with normal initialization
         self.cfg = cfg
         self.logger = logger
         self.file_system = cfg.get('FILE_SYSTEM', None)
@@ -323,6 +326,39 @@ class BaseSolver(object, metaclass=ABCMeta):
         self.cfg.MODEL.WORK_DIR = self.work_dir
         self.logger.info(
             f"Parse work dir {self.work_dir}'s prefix is {self._prefix}")
+
+    def _initialize_wandb_immediately(self):
+        """Initialize wandb immediately at the start of the solver, before any other initialization."""
+        try:
+            # Try to import wandb and dotenv
+            import wandb
+            from dotenv import load_dotenv
+            import os
+            
+            # Load API key from .env file
+            load_dotenv()
+            api_key = os.getenv('WANDB_API_KEY')
+            
+            if not api_key:
+                print("WARNING: WANDB_API_KEY not found in environment. Wandb tracking will not work!")
+                return
+                
+            # Initialize wandb with minimal config
+            # This will be updated later with full config when hooks are initialized
+            run = wandb.init(
+                project="scepter-project",  # Default project name, will be updated later
+                name=None,  # Auto-generate name, will be updated later
+                config={},  # Empty config, will be updated later
+                resume="allow"
+            )
+            
+            if run:
+                print(f"Wandb initialized immediately at solver creation: {run.name}")
+                print(f"Wandb dashboard URL: {run.url}")
+                
+        except Exception as e:
+            print(f"Error initializing wandb immediately: {e}")
+            # Continue execution even if wandb init fails
 
     def set_up_pre(self):
         # initialize Enviranment
@@ -434,6 +470,39 @@ class BaseSolver(object, metaclass=ABCMeta):
         self.logger.info("===== ATTEMPTING EARLY WANDB INITIALIZATION BEFORE MODEL DOWNLOAD =====")
         wandb_hook_found = False
         
+        # Check if wandb is available
+        try:
+            import wandb
+            self.logger.info(f"Wandb is available, version: {wandb.__version__}")
+        except ImportError:
+            self.logger.error("Wandb is not installed! Please install with 'pip install wandb'")
+            return
+        except Exception as e:
+            self.logger.error(f"Error importing wandb: {e}")
+            return
+            
+        # Check for API key
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            api_key = os.getenv('WANDB_API_KEY')
+            if not api_key:
+                self.logger.error("WANDB_API_KEY not found in environment. Please add it to your .env file.")
+                return
+            else:
+                self.logger.info("WANDB_API_KEY found in environment.")
+        except Exception as e:
+            self.logger.error(f"Error checking for WANDB_API_KEY: {e}")
+            
+        # Print all hook types and names to help debug
+        self.logger.info("Checking hooks for WandbLogHook:")
+        for mode in ['train', 'eval', 'test']:
+            if mode in self.hooks_dict:
+                hook_names = [h.__class__.__name__ for h in self.hooks_dict.get(mode, [])]
+                self.logger.info(f"  {mode} hooks: {hook_names}")
+            else:
+                self.logger.info(f"  No hooks found for {mode} mode")
+        
         # Check all hook types for WandbLogHook instances
         for mode in ['train', 'eval', 'test']:
             for hook in self.hooks_dict.get(mode, []):
@@ -459,6 +528,12 @@ class BaseSolver(object, metaclass=ABCMeta):
                         hook.init_wandb(self, config)
                         self.logger.info("Wandb early initialization complete")
                         
+                        # Verify wandb is actually initialized
+                        if hasattr(hook, 'wandb_run') and hook.wandb_run is not None:
+                            self.logger.info(f"Wandb run confirmed: {hook.wandb_run.name} (URL: {hook.wandb_run.url})")
+                        else:
+                            self.logger.error("Wandb initialization failed - hook.wandb_run is None after init_wandb()")
+                        
                         # Only need to initialize once, so break after finding first WandbLogHook
                         return
                     except Exception as e:
@@ -469,6 +544,7 @@ class BaseSolver(object, metaclass=ABCMeta):
         
         if not wandb_hook_found:
             self.logger.warning("No WandbLogHook found in any hooks list (train/eval/test). Wandb will not be initialized early.")
+            self.logger.warning("Make sure you have added WandbLogHook to your training configuration.")
 
     def construct_model(self):
         # initialize Model

@@ -94,11 +94,28 @@ class WandbLogHook(Hook):
         api_key = os.getenv('WANDB_API_KEY')
         if not api_key:
             warnings.warn('WANDB_API_KEY not found in environment. Wandb tracking will not work!')
+            if self.logger:
+                self.logger.error('WANDB_API_KEY not found in environment. Wandb tracking will not work!')
+            else:
+                print('WANDB_API_KEY not found in environment. Wandb tracking will not work!')
         else:
             if self.logger:
                 self.logger.info('WANDB_API_KEY successfully loaded.')
             else:
                 print('WANDB_API_KEY successfully loaded.')
+                
+        # Debug: Check if wandb is imported correctly
+        try:
+            import wandb
+            if self.logger:
+                self.logger.info(f"Wandb version: {wandb.__version__}")
+            else:
+                print(f"Wandb version: {wandb.__version__}")
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error importing wandb: {e}")
+            else:
+                print(f"Error importing wandb: {e}")
         
         # If early initialization is enabled, we'll set up logdir in constructor
         if self.early_init and self.log_dir is not None:
@@ -107,14 +124,46 @@ class WandbLogHook(Hook):
 
     def init_wandb(self, solver=None, config=None):
         """Initialize wandb run early, before model loading.
-        
-        This can be called at any point after hook construction but before before_solve().
-        
-        Args:
-            solver: Optional solver instance, used to get work_dir if log_dir is None
-            config: Optional configuration to log to wandb
         """
-        if we.rank != 0 or self.wandb_run is not None:
+        if we.rank != 0:
+            return
+            
+        # Debug: Print initialization attempt
+        if solver and hasattr(solver, 'logger'):
+            solver.logger.info("===== ATTEMPTING TO INITIALIZE WANDB IN init_wandb() =====")
+        else:
+            print("===== ATTEMPTING TO INITIALIZE WANDB IN init_wandb() =====")
+            
+        # Check if wandb is already initialized
+        import wandb
+        current_run = wandb.run
+        
+        if current_run is not None:
+            # Wandb is already initialized by BaseSolver, use that run
+            self.wandb_run = current_run
+            if solver and hasattr(solver, 'logger'):
+                solver.logger.info(f"Using existing wandb run: {self.wandb_run.name} (URL: {self.wandb_run.url})")
+            else:
+                print(f"Using existing wandb run: {self.wandb_run.name} (URL: {self.wandb_run.url})")
+                
+            # Update run config with our settings
+            if self.project_name:
+                self.wandb_run.project = self.project_name
+            if self.run_name:
+                self.wandb_run.name = self.run_name
+            if self.tags:
+                self.wandb_run.tags = self.wandb_run.tags + tuple(self.tags)
+            if config:
+                self.wandb_run.config.update(config)
+                
+            return
+            
+        # If wandb_run is already set, skip initialization
+        if self.wandb_run is not None:
+            if solver and hasattr(solver, 'logger'):
+                solver.logger.info("Wandb already initialized, skipping initialization.")
+            else:
+                print("Wandb already initialized, skipping initialization.")
             return
             
         # Set up log directory if not already done
@@ -126,28 +175,40 @@ class WandbLogHook(Hook):
                 os.makedirs(self._local_log_dir, exist_ok=True)
         
         # Initialize wandb with minimal config initially
-        self.wandb_run = wandb.init(
-            project=self.project_name,
-            name=self.run_name,
-            dir=self._local_log_dir,
-            config=config or {},
-            save_code=self.save_code,
-            tags=self.tags,
-            entity=self.entity,
-            resume="allow"
-        )
-        
-        # Debug logging for wandb initialization
-        if self.wandb_run is not None:
-            if solver and hasattr(solver, 'logger'):
-                solver.logger.info(f'Wandb initialized: run name={self.wandb_run.name}, project={self.project_name}')
+        try:
+            self.wandb_run = wandb.init(
+                project=self.project_name,
+                name=self.run_name,
+                dir=self._local_log_dir,
+                config=config or {},
+                save_code=self.save_code,
+                tags=self.tags,
+                entity=self.entity,
+                resume="allow"
+            )
+            
+            # Debug logging for wandb initialization
+            if self.wandb_run is not None:
+                if solver and hasattr(solver, 'logger'):
+                    solver.logger.info(f'Wandb initialized: run name={self.wandb_run.name}, project={self.project_name}')
+                    solver.logger.info(f'Wandb dashboard URL: {self.wandb_run.url}')
+                else:
+                    print(f'Wandb initialized: run name={self.wandb_run.name}, project={self.project_name}')
+                    print(f'Wandb dashboard URL: {self.wandb_run.url}')
             else:
-                print(f'Wandb initialized: run name={self.wandb_run.name}, project={self.project_name}')
-        else:
+                if solver and hasattr(solver, 'logger'):
+                    solver.logger.error('Wandb initialization failed - wandb.init() returned None.')
+                else:
+                    print('Wandb initialization failed - wandb.init() returned None.')
+        except Exception as e:
             if solver and hasattr(solver, 'logger'):
-                solver.logger.error('Wandb initialization failed.')
+                solver.logger.error(f'Error initializing wandb: {e}')
+                import traceback
+                solver.logger.error(traceback.format_exc())
             else:
-                print('Wandb initialization failed.')
+                print(f'Error initializing wandb: {e}')
+                import traceback
+                print(traceback.format_exc())
 
     def before_solve(self, solver):
         if we.rank != 0:
@@ -259,7 +320,17 @@ class WandbLogHook(Hook):
         It ensures wandb and tensorboard have the same metrics logged.
         """
         if we.rank != 0 or self.wandb_run is None:
+            # Debug: Log why we're not logging
+            if solver.total_iter % 100 == 0:  # Only log every 100 iterations to avoid spam
+                if we.rank != 0:
+                    solver.logger.info("WandbLogHook.after_iter: Not logging because we.rank != 0")
+                elif self.wandb_run is None:
+                    solver.logger.error("WandbLogHook.after_iter: Not logging because self.wandb_run is None!")
             return
+            
+        # Debug: Log that we're attempting to log metrics
+        if solver.total_iter % 100 == 0:  # Only log every 100 iterations to avoid spam
+            solver.logger.info(f"WandbLogHook.after_iter: Logging metrics at iteration {solver.total_iter}")
             
         outputs = solver.iter_outputs.copy()
         extra_vars = solver.collect_log_vars()
@@ -313,15 +384,28 @@ class WandbLogHook(Hook):
                     wandb_metrics[f'{mode}/iter/lr_group_{i}'] = param_group['lr']
         
         # Log to wandb
-        self.wandb_run.log(wandb_metrics, step=solver.total_iter)
+        try:
+            self.wandb_run.log(wandb_metrics, step=solver.total_iter)
+            if solver.total_iter % 100 == 0:  # Only log every 100 iterations to avoid spam
+                solver.logger.info(f"WandbLogHook: Successfully logged {len(wandb_metrics)} metrics to wandb")
+        except Exception as e:
+            solver.logger.error(f"Error logging to wandb: {e}")
+            import traceback
+            solver.logger.error(traceback.format_exc())
         
         # Sync to wandb server at the same interval as TensorboardLogHook flushes
         if solver.total_iter % self.interval == 0:
-            # Force sync
-            self.wandb_run.log({}, commit=True)
-            # Put to remote file systems every epoch
-            FS.put_dir_from_local_dir(self._local_log_dir, self.log_dir)
-            
+            try:
+                # Force sync
+                self.wandb_run.log({}, commit=True)
+                # Put to remote file systems every epoch
+                FS.put_dir_from_local_dir(self._local_log_dir, self.log_dir)
+                solver.logger.info(f"WandbLogHook: Synced wandb at iteration {solver.total_iter}")
+            except Exception as e:
+                solver.logger.error(f"Error syncing wandb: {e}")
+                import traceback
+                solver.logger.error(traceback.format_exc())
+
     def after_epoch(self, solver):
         """Called after each epoch.
         
