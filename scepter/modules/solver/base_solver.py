@@ -337,6 +337,7 @@ class BaseSolver(object, metaclass=ABCMeta):
                         log_file=self.log_file,
                         dist_launcher='pytorch')
         self.construct_hook()
+        self._initialize_wandb_early()
 
     def __setattr__(self, key, value):
         if isinstance(value, BaseModel):
@@ -347,8 +348,6 @@ class BaseSolver(object, metaclass=ABCMeta):
 
     def set_up(self):
         self.construct_data()
-        self.construct_hook()
-        self._initialize_wandb_early()
         self.construct_model()
         self.construct_metrics()
         if not self.use_pl:
