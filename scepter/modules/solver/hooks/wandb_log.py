@@ -169,12 +169,22 @@ class WandbLogHook(Hook):
                 print(f"Using existing wandb run: {self.wandb_run.name} (URL: {self.wandb_run.url})")
                 
             # Update run config with our settings
-            if self.project_name:
-                self.wandb_run.project = self.project_name
             if self.run_name:
-                self.wandb_run.name = self.run_name
+                try:
+                    self.wandb_run.name = self.run_name
+                except AttributeError:
+                    if solver and hasattr(solver, 'logger'):
+                        solver.logger.warning(f"Cannot modify name of existing wandb run")
+                    else:
+                        print(f"Cannot modify name of existing wandb run")
             if self.tags:
-                self.wandb_run.tags = self.wandb_run.tags + tuple(self.tags)
+                try:
+                    self.wandb_run.tags = self.wandb_run.tags + tuple(self.tags)
+                except AttributeError:
+                    if solver and hasattr(solver, 'logger'):
+                        solver.logger.warning(f"Cannot modify tags of existing wandb run")
+                    else:
+                        print(f"Cannot modify tags of existing wandb run")
             if config:
                 self.wandb_run.config.update(config)
                 
