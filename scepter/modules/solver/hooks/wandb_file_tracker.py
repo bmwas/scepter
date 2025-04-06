@@ -8,6 +8,7 @@ import warnings
 import time
 from typing import Dict, Any, Optional, List, Set
 from pathlib import Path
+from collections import defaultdict
 
 import torch
 from scepter.modules.solver.hooks.hook import Hook
@@ -101,6 +102,10 @@ class WandbFileTrackerHook(Hook):
         'ADDITIONAL_DIRECTORIES': {
             'value': [],
             'description': 'Additional directories to watch (will be combined with WATCHED_DIRECTORIES)'
+        },
+        'CACHE_SAVE_DATA_SCAN_INTERVAL': {
+            'value': 10,  # Check every 10 seconds
+            'description': 'Scan interval for cache/save_data directory'
         }
     }]
 
@@ -174,15 +179,12 @@ class WandbFileTrackerHook(Hook):
         self.configs_artifact = None
         
         # Track file counts for reporting
-        self.file_counts = {
-            'images': 0,
-            'videos': 0,
-            'data': 0,
-            'models': 0,
-            'logs': 0,
-            'configs': 0,
-            'other': 0
-        }
+        self.file_counts = defaultdict(int)
+        
+        # Special attention to cache/save_data directory
+        self.cache_save_data_dir = None
+        self.cache_save_data_last_scan_time = 0
+        self.cache_save_data_scan_interval = cfg.get('CACHE_SAVE_DATA_SCAN_INTERVAL', 10)  # Check every 10 seconds
 
     def before_solve(self, solver):
         """Connect to existing wandb run and initialize file tracking."""
@@ -251,26 +253,36 @@ class WandbFileTrackerHook(Hook):
         if we.rank != 0 or self.wandb_run is None:
             return
             
-        # Check for new files at every iteration
-        if self.track_after_iter:
-            try:
-                # Scan directories for new files
-                self._scan_directories(solver, max_files=10)  # Limit files per iteration to avoid slowdown
-            except Exception as e:
-                solver.logger.warning(f"Error in WandbFileTrackerHook.after_iter: {e}")
-                
-        # Only check periodically based on time to avoid performance impact
-        current_time = time.time()
-        if current_time - self.last_check_time < self.track_interval:
-            return
-            
         try:
-            # Update last check time
-            self.last_check_time = current_time
+            # Initialize cache/save_data directory if not already done
+            if self.cache_save_data_dir is None:
+                self.cache_save_data_dir = os.path.join(solver.work_dir, 'cache/save_data')
+                if FS.exists(self.cache_save_data_dir) and self.cache_save_data_dir not in self.watched_directories:
+                    self.watched_directories.append(self.cache_save_data_dir)
+                    solver.logger.info(f"WandbFileTrackerHook: Added cache/save_data directory: {self.cache_save_data_dir}")
             
-            # Scan directories for new files
-            self._scan_directories(solver)
+            # Check if it's time to scan based on iteration count
+            if solver.total_iter % self.iter_track_frequency == 0:
+                # Check if it's time to scan based on elapsed time
+                current_time = time.time()
+                elapsed_time = current_time - self.last_check_time
                 
+                if elapsed_time >= self.track_interval:
+                    # Scan all watched directories
+                    self._scan_directories(solver)
+                    self.last_check_time = current_time
+                
+                # Always check the cache/save_data directory at higher frequency
+                elapsed_time_cache = current_time - self.cache_save_data_last_scan_time
+                if FS.exists(self.cache_save_data_dir) and elapsed_time_cache >= self.cache_save_data_scan_interval:
+                    solver.logger.debug(f"WandbFileTrackerHook: Scanning cache/save_data directory at iteration {solver.total_iter}")
+                    self._scan_specific_directory(self.cache_save_data_dir, solver)
+                    self.cache_save_data_last_scan_time = current_time
+                    
+                    # Log artifacts immediately if new files were found
+                    if sum(self.file_counts.values()) > 0:
+                        self._log_artifacts(solver, is_final=False)
+                        
         except Exception as e:
             solver.logger.warning(f"Error in WandbFileTrackerHook.after_iter: {e}")
 
@@ -398,132 +410,210 @@ class WandbFileTrackerHook(Hook):
             solver: The solver instance
         """
         try:
-            # Get file extension and name
+            # Skip if file doesn't exist
+            if not FS.exists(file_path):
+                return
+                
+            # Get file extension and type
             _, ext = os.path.splitext(file_path)
-            file_name = os.path.basename(file_path)
+            ext = ext.lower()
             
-            # Download the file if it's remote
-            with FS.get_from(file_path, wait_finish=True) as local_path:
-                # Handle different file types
-                if ext.lower() in ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']:
-                    # Image file
-                    img = wandb.Image(local_path)
-                    self.wandb_run.log({f"tracked_files/images/{file_name}": img}, step=solver.total_iter)
-                    
-                    # Add to images artifact
-                    if self.images_artifact is not None:
-                        rel_path = os.path.relpath(file_path, solver.work_dir)
+            # Map file to local path if needed
+            local_path, _ = FS.map_to_local(file_path)
+            
+            # Get file size in MB
+            file_size_mb = os.path.getsize(local_path) / (1024 * 1024)
+            
+            # Get relative path for display
+            if hasattr(solver, 'work_dir'):
+                rel_path = os.path.relpath(file_path, solver.work_dir)
+            else:
+                rel_path = os.path.basename(file_path)
+                
+            # Check if this is from cache/save_data directory
+            is_cache_save_data = self.cache_save_data_dir and file_path.startswith(self.cache_save_data_dir)
+            
+            # Determine file type and track accordingly
+            if ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff']:
+                # Track as image
+                if self.images_artifact is not None:
+                    try:
+                        img = wandb.Image(local_path)
                         self.images_artifact.add_file(local_path, name=rel_path)
-                    
-                    self.file_counts['images'] += 1
-                    
-                elif ext.lower() in ['.mp4', '.gif', '.avi', '.mov', '.webm']:
-                    # Video file
-                    video = wandb.Video(local_path)
-                    self.wandb_run.log({f"tracked_files/videos/{file_name}": video}, step=solver.total_iter)
-                    
-                    # Add to videos artifact
-                    if self.videos_artifact is not None:
-                        rel_path = os.path.relpath(file_path, solver.work_dir)
+                        self.images_artifact.metadata.setdefault("contents", []).append({
+                            "name": rel_path,
+                            "path": local_path,
+                            "size_mb": file_size_mb,
+                            "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                            "timestamp": time.time()
+                        })
+                        self.file_counts['images'] += 1
+                        
+                        # Log image directly to wandb if it's from cache/save_data
+                        if is_cache_save_data:
+                            self.wandb_run.log({f"generated_images/{rel_path}": img}, step=solver.total_iter)
+                            
+                    except Exception as e:
+                        solver.logger.warning(f"Error tracking image {file_path}: {e}")
+                        
+            elif ext in ['.mp4', '.avi', '.mov', '.webm']:
+                # Track as video
+                if self.videos_artifact is not None:
+                    try:
                         self.videos_artifact.add_file(local_path, name=rel_path)
-                    
-                    self.file_counts['videos'] += 1
-                    
-                elif ext.lower() in ['.json', '.yaml', '.yml', '.csv', '.tsv', '.txt', '.npy', '.npz', '.pkl']:
-                    # Data file
-                    if ext.lower() == '.json':
-                        try:
-                            with open(local_path, 'r') as f:
-                                data = json.load(f)
-                            
-                            # If it's a metrics file, log its contents
-                            if any(key in file_name.lower() for key in ['metrics', 'result', 'eval', 'stats', 'score', 'performance']):
-                                # Try to extract metrics
-                                if isinstance(data, dict):
-                                    metrics = {}
-                                    # Flatten simple key-value pairs
-                                    for k, v in data.items():
-                                        if isinstance(v, (int, float)):
-                                            metrics[f"tracked_metrics/{k}"] = v
-                                        elif isinstance(v, dict):
-                                            # Handle one level of nesting
-                                            for sub_k, sub_v in v.items():
-                                                if isinstance(sub_v, (int, float)):
-                                                    metrics[f"tracked_metrics/{k}/{sub_k}"] = sub_v
-                                    
-                                    if metrics:
-                                        self.wandb_run.log(metrics, step=solver.total_iter)
-                        except Exception as e:
-                            solver.logger.debug(f"Could not parse JSON file {file_path}: {e}")
-                    
-                    # Add to data artifact
-                    if self.data_artifact is not None:
-                        rel_path = os.path.relpath(file_path, solver.work_dir)
+                        self.videos_artifact.metadata.setdefault("contents", []).append({
+                            "name": rel_path,
+                            "path": local_path,
+                            "size_mb": file_size_mb,
+                            "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                            "timestamp": time.time()
+                        })
+                        self.file_counts['videos'] += 1
+                        
+                        # Log video directly to wandb if it's from cache/save_data
+                        if is_cache_save_data:
+                            try:
+                                video = wandb.Video(local_path)
+                                self.wandb_run.log({f"generated_videos/{rel_path}": video}, step=solver.total_iter)
+                            except Exception as e:
+                                solver.logger.warning(f"Error logging video directly: {e}")
+                                
+                    except Exception as e:
+                        solver.logger.warning(f"Error tracking video {file_path}: {e}")
+                        
+            elif ext in ['.csv', '.tsv', '.txt', '.json', '.yaml', '.yml', '.h5', '.hdf5', '.pkl', '.pickle']:
+                # Track as data file
+                if self.data_artifact is not None:
+                    try:
                         self.data_artifact.add_file(local_path, name=rel_path)
-                    
-                    self.file_counts['data'] += 1
-                
-                elif ext.lower() in ['.pth', '.pt', '.ckpt', '.bin', '.h5', '.model', '.weights']:
-                    # Model file - extract metadata if possible
-                    if self.track_checkpoint_metadata and ext.lower() in ['.pth', '.pt', '.ckpt']:
-                        try:
-                            # Try to load metadata without loading the full model
-                            checkpoint = torch.load(local_path, map_location='cpu')
-                            
-                            # Extract metadata if it's a dictionary
-                            if isinstance(checkpoint, dict):
-                                metadata = {}
+                        self.data_artifact.metadata.setdefault("contents", []).append({
+                            "name": rel_path,
+                            "path": local_path,
+                            "size_mb": file_size_mb,
+                            "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                            "timestamp": time.time()
+                        })
+                        self.file_counts['data'] += 1
+                        
+                        # For JSON files from cache/save_data, try to log contents directly
+                        if is_cache_save_data and ext == '.json':
+                            try:
+                                import json
+                                with open(local_path, 'r') as f:
+                                    json_data = json.load(f)
+                                # Log JSON data directly to wandb
+                                self.wandb_run.log({f"generated_data/{rel_path}": json_data}, step=solver.total_iter)
+                            except Exception as e:
+                                solver.logger.warning(f"Error logging JSON data directly: {e}")
                                 
-                                # Extract common metadata fields
-                                for key in ['epoch', 'iter', 'iteration', 'step', 'global_step', 
-                                           'best_metric', 'learning_rate', 'optimizer_state']:
-                                    if key in checkpoint and isinstance(checkpoint[key], (int, float, str)):
-                                        metadata[f"checkpoint/{key}"] = checkpoint[key]
-                                
-                                # Log metadata if found
-                                if metadata:
-                                    self.wandb_run.log(metadata, step=solver.total_iter)
-                            
-                            # Clean up to free memory
-                            del checkpoint
-                            torch.cuda.empty_cache() if torch.cuda.is_available() else None
-                            
-                        except Exception as e:
-                            solver.logger.debug(f"Could not extract metadata from checkpoint {file_path}: {e}")
-                    
-                    # Add to models artifact
-                    if self.models_artifact is not None:
-                        rel_path = os.path.relpath(file_path, solver.work_dir)
+                    except Exception as e:
+                        solver.logger.warning(f"Error tracking data file {file_path}: {e}")
+                        
+            elif ext in ['.pth', '.pt', '.ckpt', '.bin']:
+                # Track as model file
+                if self.models_artifact is not None:
+                    try:
                         self.models_artifact.add_file(local_path, name=rel_path)
-                    
-                    self.file_counts['models'] += 1
-                
-                elif ext.lower() in ['.log', '.out', '.err']:
-                    # Log file
-                    # Add to logs artifact
-                    if self.logs_artifact is not None:
-                        rel_path = os.path.relpath(file_path, solver.work_dir)
+                        
+                        # Try to extract metadata from checkpoint
+                        checkpoint_metadata = self._extract_checkpoint_metadata(local_path, solver)
+                        
+                        self.models_artifact.metadata.setdefault("contents", []).append({
+                            "name": rel_path,
+                            "path": local_path,
+                            "size_mb": file_size_mb,
+                            "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                            "timestamp": time.time(),
+                            "metadata": checkpoint_metadata
+                        })
+                        self.file_counts['models'] += 1
+                        
+                        # If this is from cache/save_data, log it immediately as a separate artifact
+                        if is_cache_save_data:
+                            try:
+                                checkpoint_artifact = wandb.Artifact(
+                                    name=f"checkpoint_{os.path.basename(local_path)}_{solver.total_iter}", 
+                                    type="model"
+                                )
+                                checkpoint_artifact.add_file(local_path, name=os.path.basename(local_path))
+                                
+                                # Add metadata
+                                for key, value in checkpoint_metadata.items():
+                                    checkpoint_artifact.metadata[key] = value
+                                    
+                                # Log the checkpoint artifact immediately
+                                self.wandb_run.log_artifact(checkpoint_artifact)
+                                solver.logger.info(f"WandbFileTrackerHook: Logged checkpoint artifact for {rel_path}")
+                            except Exception as e:
+                                solver.logger.warning(f"Error logging checkpoint artifact directly: {e}")
+                                
+                    except Exception as e:
+                        solver.logger.warning(f"Error tracking model file {file_path}: {e}")
+                        
+            elif ext in ['.log', '.out']:
+                # Track as log file
+                if self.logs_artifact is not None:
+                    try:
                         self.logs_artifact.add_file(local_path, name=rel_path)
-                    
-                    self.file_counts['logs'] += 1
-                
-                elif ext.lower() in ['.config', '.cfg']:
-                    # Config file
-                    # Add to configs artifact
-                    if self.configs_artifact is not None:
-                        rel_path = os.path.relpath(file_path, solver.work_dir)
+                        self.logs_artifact.metadata.setdefault("contents", []).append({
+                            "name": rel_path,
+                            "path": local_path,
+                            "size_mb": file_size_mb,
+                            "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                            "timestamp": time.time()
+                        })
+                        self.file_counts['logs'] += 1
+                    except Exception as e:
+                        solver.logger.warning(f"Error tracking log file {file_path}: {e}")
+                        
+            elif ext in ['.py', '.sh', '.md']:
+                # Track as config file
+                if self.configs_artifact is not None:
+                    try:
                         self.configs_artifact.add_file(local_path, name=rel_path)
-                    
-                    self.file_counts['configs'] += 1
-                
-                else:
-                    self.file_counts['other'] += 1
-                
-                # Add to main results artifact if enabled
-                if self.create_results_artifact and self.results_artifact is not None:
-                    # Get relative path from work directory for better organization
-                    rel_path = os.path.relpath(file_path, solver.work_dir)
-                    self.results_artifact.add_file(local_path, name=rel_path)
+                        self.configs_artifact.metadata.setdefault("contents", []).append({
+                            "name": rel_path,
+                            "path": local_path,
+                            "size_mb": file_size_mb,
+                            "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                            "timestamp": time.time()
+                        })
+                        self.file_counts['configs'] += 1
+                    except Exception as e:
+                        solver.logger.warning(f"Error tracking config file {file_path}: {e}")
+                        
+            else:
+                # Track as other file
+                if self.results_artifact is not None:
+                    try:
+                        self.results_artifact.add_file(local_path, name=rel_path)
+                        self.results_artifact.metadata.setdefault("contents", []).append({
+                            "name": rel_path,
+                            "path": local_path,
+                            "size_mb": file_size_mb,
+                            "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                            "timestamp": time.time()
+                        })
+                        self.file_counts['other'] += 1
+                    except Exception as e:
+                        solver.logger.warning(f"Error tracking other file {file_path}: {e}")
+                        
+            # Add to results artifact if it exists
+            if self.results_artifact is not None and self.create_results_artifact:
+                try:
+                    # Only add to results artifact if not already added
+                    if not any(item.get("path") == local_path for item in self.results_artifact.metadata.get("contents", [])):
+                        self.results_artifact.add_file(local_path, name=rel_path)
+                        self.results_artifact.metadata.setdefault("contents", []).append({
+                            "name": rel_path,
+                            "path": local_path,
+                            "size_mb": file_size_mb,
+                            "type": os.path.splitext(file_path)[1],
+                            "iteration": solver.total_iter if hasattr(solver, 'total_iter') else 0,
+                            "timestamp": time.time()
+                        })
+                except Exception as e:
+                    solver.logger.warning(f"Error adding file to results artifact: {e}")
                     
         except Exception as e:
             solver.logger.warning(f"Error tracking file {file_path}: {e}")

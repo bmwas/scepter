@@ -107,6 +107,9 @@ class WandbLogHook(Hook):
         self.activation_hooks = []
         self.activations = {}
         
+        # Always log loss at every iteration regardless of interval
+        self.log_loss_every_iter = True
+        
         # Load wandb API key from .env file
         load_dotenv()
         # Debug logging for WANDB_API_KEY
@@ -294,8 +297,8 @@ class WandbLogHook(Hook):
         if we.rank != 0 or self.wandb_run is None:
             return
 
-        # Log at every iteration (removed interval check)
         try:
+            # Log all metrics at every iteration
             # Get the outputs from the solver
             outputs = solver.iter_outputs.copy()
             extra_vars = solver.collect_log_vars()
@@ -303,6 +306,10 @@ class WandbLogHook(Hook):
 
             # Create a dictionary for wandb metrics
             wandb_metrics = {}
+            
+            # Add iteration and epoch info
+            wandb_metrics["iteration"] = solver.total_iter
+            wandb_metrics["epoch"] = solver.epoch
 
             # Process all metrics from outputs
             for key, value in outputs.items():
@@ -364,25 +371,27 @@ class WandbLogHook(Hook):
                 except Exception as e:
                     self.logger.warning(f"Error logging GPU memory: {e}")
 
-            # Track gradients and weights histograms for model parameters
-            if solver.is_train_mode and hasattr(solver, 'model') and solver.model is not None:
-                try:
-                    # Log parameter histograms
-                    for name, param in solver.model.named_parameters():
-                        if param.requires_grad:
-                            # Log parameter values
-                            wandb_metrics[f"model/weights/{name}"] = wandb.Histogram(param.detach().cpu().numpy())
-                            
-                            # Log parameter gradients if they exist
-                            if param.grad is not None:
-                                wandb_metrics[f"model/gradients/{name}"] = wandb.Histogram(param.grad.detach().cpu().numpy())
-                            
-                            # Log gradient norms for each layer
-                            if param.grad is not None:
-                                grad_norm = torch.norm(param.grad.detach()).item()
-                                wandb_metrics[f"model/gradient_norms/{name}"] = grad_norm
-                except Exception as e:
-                    self.logger.warning(f"Error logging parameter histograms: {e}")
+            # Only log parameter histograms at the specified interval to avoid excessive data
+            if solver.total_iter % self.interval == 0:
+                # Track gradients and weights histograms for model parameters
+                if solver.is_train_mode and hasattr(solver, 'model') and solver.model is not None:
+                    try:
+                        # Log parameter histograms
+                        for name, param in solver.model.named_parameters():
+                            if param.requires_grad:
+                                # Log parameter values
+                                wandb_metrics[f"model/weights/{name}"] = wandb.Histogram(param.detach().cpu().numpy())
+                                
+                                # Log parameter gradients if they exist
+                                if param.grad is not None:
+                                    wandb_metrics[f"model/gradients/{name}"] = wandb.Histogram(param.grad.detach().cpu().numpy())
+                                
+                                # Log gradient norms for each layer
+                                if param.grad is not None:
+                                    grad_norm = torch.norm(param.grad.detach()).item()
+                                    wandb_metrics[f"model/gradient_norms/{name}"] = grad_norm
+                    except Exception as e:
+                        self.logger.warning(f"Error logging parameter histograms: {e}")
 
             # Log activations if tracking is enabled
             if self.track_activations and solver.total_iter % self.activation_frequency == 0:
@@ -504,22 +513,96 @@ class WandbLogHook(Hook):
             return
 
         try:
+            # Create a final summary artifact with all results
+            self._create_final_summary_artifact(solver)
+            
             # Log final checkpoint as artifact
             if hasattr(solver, 'checkpoint_hook') and solver.checkpoint_hook is not None:
                 self._log_checkpoint_artifact(solver, is_final=True)
                 
-            # Final scan for all files in the work directory
+            # Scan for new files in the work directory
             self._scan_for_new_files(solver, force=True, final=True)
             
-            # Create a final summary artifact with all config and results
-            self._create_final_summary_artifact(solver)
+            # Create and log a final loss plot
+            self._create_final_loss_plot(solver)
             
-            # Finish the wandb run
-            self.wandb_run.finish()
+            # Update wandb summary with final metrics
+            if hasattr(solver, 'best_val_loss'):
+                self.wandb_run.summary.update({"best_val_loss": solver.best_val_loss})
+            if hasattr(solver, 'best_val_acc'):
+                self.wandb_run.summary.update({"best_val_acc": solver.best_val_acc})
             
+            # Log final training time
+            if hasattr(solver, 'start_time'):
+                training_time = time.time() - solver.start_time
+                self.wandb_run.summary.update({
+                    "training_time_seconds": training_time,
+                    "training_time_formatted": time_since(solver.start_time)
+                })
+                
+            self.logger.info(f"WandbLogHook: Finished logging to wandb run: {self.wandb_run.name}")
+
         except Exception as e:
             self.logger.warning(f"Error in WandbLogHook.after_solve: {e}")
             
+    def _create_final_loss_plot(self, solver):
+        """Create and log a final loss plot to wandb.
+        
+        Args:
+            solver: The solver instance
+        """
+        try:
+            import matplotlib.pyplot as plt
+            
+            # Create a new figure
+            plt.figure(figsize=(10, 6))
+            
+            # Get loss history from wandb
+            api = wandb.Api()
+            run = api.run(f"{self.wandb_run.entity}/{self.wandb_run.project}/{self.wandb_run.id}")
+            
+            # Extract loss data
+            history = run.scan_history()
+            iterations = []
+            losses = []
+            
+            # Find all loss metrics
+            loss_keys = []
+            for row in history:
+                for key in row.keys():
+                    if 'loss' in key.lower() and key not in loss_keys:
+                        loss_keys.append(key)
+                break
+            
+            # Create a plot for each loss metric
+            for loss_key in loss_keys:
+                iterations = []
+                losses = []
+                
+                for row in history:
+                    if loss_key in row and 'iteration' in row:
+                        iterations.append(row['iteration'])
+                        losses.append(row[loss_key])
+                
+                if iterations and losses:
+                    plt.plot(iterations, losses, label=loss_key)
+            
+            # Add labels and title
+            plt.xlabel('Iteration')
+            plt.ylabel('Loss')
+            plt.title('Training Loss')
+            plt.legend()
+            plt.grid(True)
+            
+            # Log the plot to wandb
+            self.wandb_run.log({"final_loss_plot": wandb.Image(plt)})
+            
+            # Close the figure to free memory
+            plt.close()
+            
+        except Exception as e:
+            self.logger.warning(f"Error creating final loss plot: {e}")
+
     def _scan_for_new_files(self, solver, force=False, final=False):
         """Scan for new files in the work directory and log them to wandb.
         
