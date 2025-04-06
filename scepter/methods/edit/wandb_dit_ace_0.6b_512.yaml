@@ -168,9 +168,9 @@ SOLVER:
     - {NAME: WandbCheckpointHook, CHECKPOINT_INTERVAL: 100, SAVE_BEST: True,
       SAVE_BEST_BY: "+loss",     PRIORITY: 300}            # :contentReference[oaicite:0]{index=0}
 
-    # ---------------- LR & validation tracking ------------ 
+    # ---------------- LR tracking ------------ 
     - {NAME: WandbLrHook,         LOG_LR_SCHEDULE: True, PRIORITY: 200}     # :contentReference[oaicite:1]{index=1}
-    - {NAME: WandbValLossHook,    VAL_INTERVAL: 100,      PRIORITY: 200, DATA: {NAME: ImageTextPairMSDatasetForACE, MODE: val, MS_DATASET_NAME: cache/datasets/hed_pair, MS_DATASET_NAMESPACE: "", MS_DATASET_SPLIT: "train", MS_DATASET_SUBNAME: ""}}    # :contentReference[oaicite:2]{index=2}
+    # Note: WandbValLossHook removed as it requires run_step_val method
 
     # ---------------- images / probe data -----------------
     - {NAME: ProbeDataHook,       PROB_INTERVAL: 100}                        # keeps local saves
