@@ -17,10 +17,8 @@ SOLVER:
   ACCU_STEP: 1
   EVAL_INTERVAL: 50
   RESCALE_LR: False
-  #
   WORK_DIR: ./cache/save_data/ace_0.6b_512
   LOG_FILE: std_log.txt
-  #
   FILE_SYSTEM:
     - NAME: "HuggingfaceFs"
       TEMP_DIR: ./cache/cache_data
@@ -41,7 +39,6 @@ MODEL:
   EVAL_EMA: False
   TEXT_IDENTIFIER: [ '{image}' ]
   USE_TEXT_POS_EMBEDDINGS: True
-  #
   DIFFUSION:
     NAME: BaseDiffusion
     PREDICTION_TYPE: eps
@@ -51,7 +48,6 @@ MODEL:
       NUM_TIMESTEPS: 1000
       BETA_MIN: 0.0001
       BETA_MAX: 0.02
-  #
   DIFFUSION_MODEL:
     NAME: ACE
     PRETRAINED_MODEL: ms://iic/ACE-0.6B-512px@models/dit/ace_0.6b_512px.pth
@@ -70,13 +66,11 @@ MODEL:
     QK_NORM: True
     USE_GRAD_CHECKPOINT: True
     ATTENTION_BACKEND: flash_attn
-  #
   FIRST_STAGE_MODEL:
     NAME: AutoencoderKL
     EMBED_DIM: 4
     PRETRAINED_MODEL: ms://iic/ACE-0.6B-512px@models/vae/vae.bin
-    IGNORE_KEYS: []
-    #
+    IGNORE_KEYS: [ ]
     ENCODER:
       NAME: Encoder
       CH: 128
@@ -84,12 +78,11 @@ MODEL:
       NUM_RES_BLOCKS: 2
       IN_CHANNELS: 3
       ATTN_RESOLUTIONS: [ ]
-      CH_MULT: [ 1, 2, 4, 4 ]
+      CH_MULT: [1, 2, 4, 4]
       Z_CHANNELS: 4
       DOUBLE_Z: True
       DROPOUT: 0.0
       RESAMP_WITH_CONV: True
-    #
     DECODER:
       NAME: Decoder
       CH: 128
@@ -97,13 +90,12 @@ MODEL:
       NUM_RES_BLOCKS: 2
       IN_CHANNELS: 3
       ATTN_RESOLUTIONS: [ ]
-      CH_MULT: [ 1, 2, 4, 4 ]
+      CH_MULT: [1, 2, 4, 4]
       Z_CHANNELS: 4
       DROPOUT: 0.0
       RESAMP_WITH_CONV: True
       GIVE_PRE_END: False
       TANH_OUT: False
-  #
   COND_STAGE_MODEL:
     NAME: T5EmbedderHF
     PRETRAINED_MODEL: ms://iic/ACE-0.6B-512px@models/text_encoder/t5-v1_1-xxl/
@@ -154,4 +146,3 @@ TRAIN_HOOKS:
     INTERVAL: 100
   - NAME: ProbeDataHook
     PROB_INTERVAL: 100
-
