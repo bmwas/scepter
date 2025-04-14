@@ -1,7 +1,8 @@
+---
 ENV:
   BACKEND: nccl
   SEED: 2024
-#
+
 SOLVER:
   NAME: ACESolver
   RESUME_FROM:
@@ -26,7 +27,7 @@ SOLVER:
       TEMP_DIR: ./cache/cache_data
     - NAME: "ModelscopeFs"
       TEMP_DIR: ./cache/cache_data
-#
+
 MODEL:
   NAME: LatentDiffusionACE
   PRETRAINED_MODEL:
@@ -37,7 +38,7 @@ MODEL:
   DEFAULT_N_PROMPT:
   USE_EMA: True
   EVAL_EMA: False
-  TEXT_IDENTIFIER: [ '{image}' ]
+  TEXT_IDENTIFIER: [ "{image}" ]
   USE_TEXT_POS_EMBEDDINGS: True
   DIFFUSION:
     NAME: BaseDiffusion
@@ -102,25 +103,25 @@ MODEL:
     TOKENIZER_PATH: ms://iic/ACE-0.6B-512px@models/tokenizer/t5-v1_1-xxl
     LENGTH: 120
     T5_DTYPE: bfloat16
-    ADDED_IDENTIFIER: [ '{image}', '{caption}' ]
+    ADDED_IDENTIFIER: [ "{image}", "{caption}" ]
     CLEAN: whitespace
     USE_GRAD: False
   LOSS:
     NAME: ReconstructLoss
     LOSS_TYPE: l2
-#
+
 SAMPLE_ARGS:
   SAMPLER: ddim
   SAMPLE_STEPS: 20
   GUIDE_SCALE: 4.5
   GUIDE_RESCALE: 0.5
-#
+
 OPTIMIZER:
   NAME: AdamW
   LEARNING_RATE: 1e-7
   EPS: 1e-10
   WEIGHT_DECAY: 5e-4
-#
+
 TRAIN_DATA:
   NAME: ImageTextPairMSDatasetForACE
   MODE: train
@@ -136,7 +137,7 @@ TRAIN_DATA:
   NUM_WORKERS: 1
   SAMPLER:
     NAME: LoopSampler
-#
+
 TRAIN_HOOKS:
   - NAME: BackwardHook
     PRIORITY: 0
