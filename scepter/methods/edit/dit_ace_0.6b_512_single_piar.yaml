@@ -137,7 +137,7 @@ TRAIN_DATA:
   NUM_WORKERS: 1
   SAMPLER:
     NAME: LoopSampler
-
+    
 TRAIN_HOOKS:
   - NAME: BackwardHook
     PRIORITY: 0
