@@ -12,8 +12,8 @@ SOLVER:
   DTYPE: float16
   CHANNELS_LAST: True
   MAX_STEPS: 500
-  MAX_EPOCHS: -1
-  NUM_FOLDS: 1
+  MAX_EPOCHS: 2
+  NUM_FOLDS: 5
   ACCU_STEP: 1
   EVAL_INTERVAL: 50
   RESCALE_LR: False
@@ -138,7 +138,7 @@ SOLVER:
   TRAIN_DATA:
     NAME: ImageTextPairMSDatasetForACE
     MODE: train
-    MS_DATASET_NAME: cache/datasets/hed_pair
+    MS_DATASET_NAME: cache/datasets/therapy_pair
     MS_DATASET_NAMESPACE: ""
     MS_DATASET_SPLIT: "train"
     MS_DATASET_SUBNAME: ""
