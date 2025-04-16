@@ -298,34 +298,31 @@ class LogHook(Hook):
             outputs.update(solver.iter_outputs)
             outputs.update(solver.collect_log_vars())
             
-            # Try direct wandb logging without disrupting normal flow
-            if solver.total_iter % 10 == 0:  # Only log every 10 iterations
+            # DIRECT WANDB LOGGING - Write loss value directly to wandb if available
+            if solver.total_iter % 10 == 0:  # Only log every 10 iterations to avoid overwhelming wandb
                 try:
                     import wandb
                     if wandb.run is not None and 'loss' in outputs:
                         loss_value = outputs['loss']
                         # Convert to scalar if it's a list or tensor
                         if isinstance(loss_value, torch.Tensor):
-                            if loss_value.numel() == 1:
-                                loss_value = loss_value.item()
-                            else:
-                                loss_value = loss_value.mean().item()
+                            loss_value = loss_value.item() if loss_value.numel() == 1 else loss_value.mean().item()
                         elif isinstance(loss_value, list) and len(loss_value) > 0:
                             loss_value = sum(float(v) for v in loss_value) / len(loss_value)
                             
                         # Log the scalar value
                         wandb.log({
                             "direct/loss": loss_value,
-                            "direct/step": solver.total_iter
+                            "direct/step": solver.total_iter,
+                            "direct/mode": solver.mode
                         }, step=solver.total_iter)
-                        print(f"Direct wandb log: loss={loss_value}")
+                        print(f"DIRECTLY LOGGED TO WANDB: loss={loss_value}")
                 except Exception as e:
-                    print(f"Wandb direct logging failed: {e}")
+                    print(f"WANDB DIRECT LOGGING FAILED: {e}")
             
-            # Original logging functionality
             _print_iter_log(
                 solver, outputs, final=False, start_time=self.start_time)
-        self.last_log_step = (solver.mode, solver.total_iter)
+        self.last_log_step = (solver.mode, solver.total_iter + 1)
 
     def after_all_iter(self, solver):
         outputs = self.log_agg_dict[solver.mode].aggregate(
