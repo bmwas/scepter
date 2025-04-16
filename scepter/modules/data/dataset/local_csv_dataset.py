@@ -41,6 +41,10 @@ class CSVInRAMDataset(BaseDataset):
         'ADD_INDICATOR': {
             'value': False,
             'description': 'Add {image} indicator to prompt if not present'
+        },
+        'NEGATIVE_PROMPT': {
+            'value': '',
+            'description': 'Negative/unconditional prompt to use'
         }
     }
 
@@ -53,6 +57,7 @@ class CSVInRAMDataset(BaseDataset):
         self.prompt_prefix = cfg.get('PROMPT_PREFIX', '')
         self.max_seq_len = cfg.get('MAX_SEQ_LEN', 1024)
         self.add_indicator = cfg.get('ADD_INDICATOR', False)
+        self.negative_prompt = cfg.get('NEGATIVE_PROMPT', '')
         
         # Check if file exists
         if not os.path.exists(csv_path):
@@ -124,6 +129,7 @@ class CSVInRAMDataset(BaseDataset):
             'image': target_img,             # Target image
             'image_mask': tar_mask,          # Target mask
             'prompt': [[prompt]],            # List of list of prompts
+            'negative_prompt': [[self.negative_prompt]],  # Negative/unconditional prompt, as list of lists
             'edit_id': [0]                   # Edit IDs
         }
 
@@ -141,6 +147,9 @@ class CSVInRAMDataset(BaseDataset):
             elif k == 'prompt':
                 # For prompt, keep as list of lists
                 batch_dict[k] = [item['prompt'][0] for item in batch]
+            elif k == 'negative_prompt':
+                # For negative_prompt, keep as list of lists
+                batch_dict[k] = [item['negative_prompt'][0] for item in batch]
             elif k in ['image', 'image_mask']:
                 # For tensor fields, we stack them
                 batch_dict[k] = torch.stack([item[k] for item in batch])
