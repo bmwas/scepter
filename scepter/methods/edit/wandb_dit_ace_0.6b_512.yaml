@@ -165,22 +165,13 @@ SOLVER:
       TO_WANDB: True
 
     # ---------------- wandb initialiser ----------------
-    - {NAME: WandbLogHook,   PRIORITY: 100,                # must come before every other wandb‑hook
-      PROJECT_NAME: "scepter-project",                     # Match the default project name in BaseSolver
-      RUN_NAME: "ace_0.6b_512_final",
-      TAGS: [ACE, 0.6B, cross-validation],
-      SAVE_CODE: True,
-      LOG_INTERVAL: 10,                                    # Log more frequently
-      LOG_CROSS_VALIDATION: True,
-      CV_PREFIX: "cv/",
-      MONITOR_ALL_METRICS: True,
-      SCALAR_PREFIX: "scalar/",
-      PROCESS_LIST_VALUES: True,
-      LIST_AGGREGATION: "mean",
-      LOG_CV_FOLD_METRICS: True,                           # Explicitly log fold metrics
-      CV_FOLD_PREFIX: "fold_",                             # Prefix for individual fold metrics
-      CAPTURE_LOSS_FROM_OUTPUTS: True,                     # Try to find loss in all solver outputs
-      CAPTURE_ALL_SOLVER_ATTRS: True}                      # Try to capture all solver attributes
+    - NAME: WandbLogHook
+      PRIORITY: 100
+      PROJECT_NAME: "scepter-project"
+      RUN_NAME: "ace_0.6b_512_final"
+      TAGS: [ACE, 0.6B, cross-validation]
+      SAVE_CODE: True
+      LOG_INTERVAL: 10
 
     # ---------------- checkpoints & metrics ----------------
     - {NAME: CheckpointHook,      INTERVAL: 100,  PRIORITY: 300}
