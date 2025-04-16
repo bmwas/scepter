@@ -17,6 +17,7 @@ from scepter.modules.utils.config import dict_to_yaml
 from scepter.modules.utils.distribute import we
 from scepter.modules.utils.file_system import FS
 from scepter.modules.utils.logger import LogAgg, time_since
+import yaml
 
 try:
     import wandb
@@ -688,8 +689,11 @@ class WandbLogHook(Hook):
             plt.xlabel('Iteration')
             plt.ylabel('Loss')
             plt.title('Training Loss')
-            plt.legend()
-            plt.grid(True)
+            
+            # Only add legend if there are labeled lines
+            handles, labels = plt.gca().get_legend_handles_labels()
+            if handles:
+                plt.legend()
             
             # Log the plot to wandb
             self.wandb_run.log({"final_loss_plot": wandb.Image(plt)})

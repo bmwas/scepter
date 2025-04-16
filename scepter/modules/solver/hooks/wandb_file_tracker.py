@@ -255,7 +255,10 @@ class WandbFileTrackerHook(Hook):
             "./cache/save_data",             # Alternate relative path
             os.path.abspath("cache/save_data")  # Absolute path from current directory
         ]
-
+        
+        # Add tracked_file_metadata initialization
+        self.tracked_file_metadata = {}
+        
     def before_solve(self, solver):
         """Connect to existing wandb run and initialize file tracking."""
         if we.rank != 0:
@@ -316,7 +319,7 @@ class WandbFileTrackerHook(Hook):
                     )
                 
                 # Discover additional model artifact directories
-                self._discover_artifact_directories(solver)
+                # self._discover_artifact_directories(solver)
                 
                 # Initialize cache/save_data directory paths
                 self._initialize_cache_save_data_paths(solver)
@@ -367,14 +370,20 @@ class WandbFileTrackerHook(Hook):
             self._scan_directories(solver)
             
             # Log artifacts at the end of each epoch
-            self._log_artifacts(solver, is_final=False)
+            # self._log_artifacts(solver, is_final=False)
             
             # Log summary statistics
+            # Ensure monotonically increasing step for wandb
+            current_step = getattr(self, '_wandb_last_logged_step', -1)
+            step = solver.total_iter
+            if step is not None and step < current_step:
+                step = current_step + 1
+            self._wandb_last_logged_step = step
             self.wandb_run.log({
                 "epoch": solver.epoch,
                 "tracked_files/total_count": sum(self.file_counts.values()),
                 "tracked_files/epoch_summary": f"Epoch {solver.epoch}: {sum(self.file_counts.values())} files tracked"
-            }, step=solver.total_iter)
+            }, step=step)
                 
         except Exception as e:
             solver.logger.warning(f"Error in WandbFileTrackerHook.after_epoch: {e}")
@@ -402,13 +411,13 @@ class WandbFileTrackerHook(Hook):
                 self._scan_specific_directory(checkpoints_dir, solver)
             
             # Do one final discovery of artifact directories that might have been created during training
-            self._discover_artifact_directories(solver)
+            # self._discover_artifact_directories(solver)
             
             # Final scan for new files in all watched directories
             self._scan_directories(solver)
             
             # Log all artifacts
-            self._log_artifacts(solver, is_final=True)
+            # self._log_artifacts(solver, is_final=True)
             
             # Log final summary
             solver.logger.info(f"WandbFileTrackerHook: Completed tracking with {sum(self.file_counts.values())} total files:")
@@ -551,10 +560,8 @@ class WandbFileTrackerHook(Hook):
                         
                         # For cache directory files, log immediately for maximum responsiveness
                         if is_cache_dir and self.cache_save_data_artifact is not None and new_files_found % 5 == 0:
-                            try:
-                                self._log_artifacts(solver, is_final=False)
-                            except Exception as e:
-                                solver.logger.warning(f"Error logging artifacts: {e}")
+                            # self._log_artifacts(solver, is_final=False)
+                            pass
                         
                         # Log progress for large directories
                         if new_files_found % 20 == 0 and solver.logger:
@@ -574,6 +581,12 @@ class WandbFileTrackerHook(Hook):
                     solver.logger.info(f"WandbFileTrackerHook: Tracked {new_files_found} new files ({file_types_summary})")
                     
                     # Log summary to wandb
+                    # Ensure monotonically increasing step for wandb
+                    current_step = getattr(self, '_wandb_last_logged_step', -1)
+                    step = solver.total_iter
+                    if step is not None and step < current_step:
+                        step = current_step + 1
+                    self._wandb_last_logged_step = step
                     self.wandb_run.summary.update({
                         "tracked_files/total": sum(self.file_counts.values()),
                         "tracked_files/images": self.file_counts['images'],
@@ -647,7 +660,13 @@ class WandbFileTrackerHook(Hook):
                         
                         # Log image directly to wandb if it's from cache/save_data
                         if is_cache_save_data:
-                            self.wandb_run.log({f"generated_images/{rel_path}": img}, step=solver.total_iter)
+                            # Ensure monotonically increasing step for wandb
+                            current_step = getattr(self, '_wandb_last_logged_step', -1)
+                            step = solver.total_iter
+                            if step is not None and step < current_step:
+                                step = current_step + 1
+                            self._wandb_last_logged_step = step
+                            self.wandb_run.log({f"generated_images/{rel_path}": img}, step=step)
                             
                     except Exception as e:
                         solver.logger.warning(f"Error tracking image {file_path}: {e}")
@@ -670,7 +689,13 @@ class WandbFileTrackerHook(Hook):
                         if is_cache_save_data:
                             try:
                                 video = wandb.Video(local_path)
-                                self.wandb_run.log({f"generated_videos/{rel_path}": video}, step=solver.total_iter)
+                                # Ensure monotonically increasing step for wandb
+                                current_step = getattr(self, '_wandb_last_logged_step', -1)
+                                step = solver.total_iter
+                                if step is not None and step < current_step:
+                                    step = current_step + 1
+                                self._wandb_last_logged_step = step
+                                self.wandb_run.log({f"generated_videos/{rel_path}": video}, step=step)
                             except Exception as e:
                                 solver.logger.warning(f"Error logging video directly: {e}")
                                 
@@ -698,7 +723,13 @@ class WandbFileTrackerHook(Hook):
                                 with open(local_path, 'r') as f:
                                     json_data = json.load(f)
                                 # Log JSON data directly to wandb
-                                self.wandb_run.log({f"generated_data/{rel_path}": json_data}, step=solver.total_iter)
+                                # Ensure monotonically increasing step for wandb
+                                current_step = getattr(self, '_wandb_last_logged_step', -1)
+                                step = solver.total_iter
+                                if step is not None and step < current_step:
+                                    step = current_step + 1
+                                self._wandb_last_logged_step = step
+                                self.wandb_run.log({f"generated_data/{rel_path}": json_data}, step=step)
                             except Exception as e:
                                 solver.logger.warning(f"Error logging JSON data directly: {e}")
                                 
@@ -712,7 +743,8 @@ class WandbFileTrackerHook(Hook):
                         self.models_artifact.add_file(local_path, name=rel_path)
                         
                         # Try to extract metadata from checkpoint
-                        checkpoint_metadata = self._extract_checkpoint_metadata(local_path, solver)
+                        # checkpoint_metadata = self._extract_checkpoint_metadata(local_path, solver)
+                        checkpoint_metadata = {}
                         
                         self.models_artifact.metadata.setdefault("contents", []).append({
                             "name": rel_path,
@@ -738,6 +770,12 @@ class WandbFileTrackerHook(Hook):
                                     checkpoint_artifact.metadata[key] = value
                                     
                                 # Log the checkpoint artifact immediately
+                                # Ensure monotonically increasing step for wandb
+                                current_step = getattr(self, '_wandb_last_logged_step', -1)
+                                step = solver.total_iter
+                                if step is not None and step < current_step:
+                                    step = current_step + 1
+                                self._wandb_last_logged_step = step
                                 self.wandb_run.log_artifact(checkpoint_artifact)
                                 solver.logger.info(f"WandbFileTrackerHook: Logged checkpoint artifact for {rel_path}")
                             except Exception as e:
@@ -917,10 +955,9 @@ class WandbFileTrackerHook(Hook):
                     
                     # Log immediately after every few files for maximum responsiveness
                     if new_files_found % 5 == 0:
-                        try:
-                            self._log_artifacts(solver, is_final=False)
-                        except Exception as e:
-                            solver.logger.warning(f"Error logging artifacts: {e}")
+                        # self._log_artifacts(solver, is_final=False)
+                        pass
+                        
                 except Exception as e:
                     solver.logger.warning(f"Error tracking file {file_path}: {e}")
             
@@ -930,10 +967,7 @@ class WandbFileTrackerHook(Hook):
                 solver.logger.info(f"WandbFileTrackerHook: Found {new_files_found} new files and {new_dirs_found} new directories in {directory}")
                 
                 # For all directories, log artifacts immediately for maximum visibility
-                try:
-                    self._log_artifacts(solver, is_final=False)
-                except Exception as e:
-                    solver.logger.warning(f"Error logging artifacts: {e}")
+                # self._log_artifacts(solver, is_final=False)
                 
             # Update last check time if not a cache directory (cache time is updated separately)
             if not is_cache_dir:
@@ -1030,12 +1064,8 @@ class WandbFileTrackerHook(Hook):
                     
                     # Log immediately after every file to ensure maximum responsiveness
                     if self.cache_save_data_artifact is not None:
-                        try:
-                            # This logs the artifact immediately to ensure it's visible in Wandb
-                            # without waiting for batch processing
-                            self._log_artifacts(solver, is_final=False)
-                        except Exception as e:
-                            solver.logger.warning(f"Error immediately logging cache/save_data artifact: {e}")
+                        # self._log_artifacts(solver, is_final=False)
+                        pass
                 except Exception as e:
                     solver.logger.warning(f"Error tracking cache/save_data file {file_path}: {e}")
                 
@@ -1048,20 +1078,22 @@ class WandbFileTrackerHook(Hook):
                 solver.logger.info(f"WandbFileTrackerHook: Found {new_files_found} new files and {new_dirs_found} new directories in cache/save_data directory")
                 
                 # Log metrics to wandb for tracking
+                # Ensure monotonically increasing step for wandb
+                current_step = getattr(self, '_wandb_last_logged_step', -1)
+                step = solver.total_iter
+                if step is not None and step < current_step:
+                    step = current_step + 1
+                self._wandb_last_logged_step = step
                 self.wandb_run.log({
                     "cache_save_data/files_tracked": len(self.tracked_files),
                     "cache_save_data/new_files_count": new_files_found,
                     "cache_save_data/new_dirs_count": new_dirs_found,
                     "cache_save_data/last_scan_time": current_time,
-                    "cache_save_data/iteration": solver.total_iter
-                }, step=solver.total_iter)
+                    "cache_save_data/iteration": step,
+                }, step=step)
                 
                 # Final artifact logging
-                if self.cache_save_data_artifact is not None:
-                    try:
-                        self._log_artifacts(solver, is_final=False)
-                    except Exception as e:
-                        solver.logger.warning(f"Error logging cache/save_data artifacts: {e}")
+                # self._log_artifacts(solver, is_final=False)
                 
         except Exception as e:
             solver.logger.warning(f"Error scanning cache/save_data directory: {e}")
@@ -1286,6 +1318,11 @@ class WandbFileTrackerHook(Hook):
             if metrics and self.wandb_run is not None:
                 try:
                     step = solver.total_iter if hasattr(solver, 'total_iter') else None
+                    # Ensure monotonically increasing step for wandb
+                    current_step = getattr(self, '_wandb_last_logged_step', -1)
+                    if step is not None and step < current_step:
+                        step = current_step + 1
+                    self._wandb_last_logged_step = step
                     self.wandb_run.log(metrics, step=step)
                     solver.logger.info(f"Logged {len(metrics)} metrics from file {os.path.basename(file_path)}")
                 except Exception as e:
@@ -1317,7 +1354,7 @@ class WandbFileTrackerHook(Hook):
             try:
                 for root, dirs, files in self._walk_directory(directory):
                     # Skip excluded directories
-                    dirs_to_process = [d for d in dirs if not any(pattern in d for pattern in self.exclude_patterns)]
+                    dirs[:] = [d for d in dirs if not any(pattern in d for pattern in self.exclude_patterns)]
                     
                     # Process directories themselves - track them as artifacts
                     for dir_name in dirs_to_process:
@@ -1383,10 +1420,8 @@ class WandbFileTrackerHook(Hook):
                 
                 # For cache directory, log artifacts immediately
                 if is_cache_dir and self.cache_save_data_artifact is not None:
-                    try:
-                        self._log_artifacts(solver)
-                    except Exception as e:
-                        solver.logger.warning(f"Error logging artifacts: {e}")
+                    # self._log_artifacts(solver)
+                    pass
                 
             # Track scan time
             scan_duration = time.time() - scan_start_time
