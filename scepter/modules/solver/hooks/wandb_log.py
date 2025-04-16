@@ -9,6 +9,7 @@ import warnings
 from collections import defaultdict
 from typing import Optional, Dict, Any
 
+import json
 import numpy as np
 import torch
 from scepter.modules.solver.hooks.hook import Hook
