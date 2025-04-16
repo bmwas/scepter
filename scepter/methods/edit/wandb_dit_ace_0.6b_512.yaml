@@ -136,26 +136,16 @@ SOLVER:
     GAMMA: 0.5
   #
   TRAIN_DATA:
-    NAME: HFDataset
-    DATASET_TYPE: csv
-    DATA_FILES:
-      train: ./cache/datasets/therapy_pair/training.csv
-    SPLIT: train
-    FEATURES:
-      - { name: "image_path", dtype: "string" }
-      - { name: "caption",    dtype: "string" }
+    NAME: ImageTextPairMSDatasetForACE
+    MS_DATASET_NAME: ./cache/datasets/therapy_pair
+    MS_DATASET_SPLIT: train
     BATCH_SIZE: 1
     NUM_WORKERS: 1
 
   VAL_DATA:
-    NAME: HFDataset
-    DATASET_TYPE: csv
-    DATA_FILES:
-      val: ./cache/datasets/therapy_pair/validation.csv
-    SPLIT: val
-    FEATURES:
-      - { name: "image_path", dtype: "string" }
-      - { name: "caption",    dtype: "string" }
+    NAME: ImageTextPairMSDatasetForACE
+    MS_DATASET_NAME: ./cache/datasets/therapy_pair
+    MS_DATASET_SPLIT: validation
     BATCH_SIZE: 1
     NUM_WORKERS: 1
   
