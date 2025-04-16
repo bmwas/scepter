@@ -175,6 +175,13 @@ SOLVER:
       LOG_INTERVAL: 10
       FORCE_SCALAR_METRICS: True
 
+    # ---------------- custom loss tracker for wandb ----------------
+    - NAME: CustomWandbLossHook
+      PRIORITY: 150
+      LOG_INTERVAL: 1
+      METRICS: ["loss"]
+      PREFIX: "metrics/"
+
     # ---------------- checkpoints & metrics ----------------
     - {NAME: CheckpointHook,      INTERVAL: 100,  PRIORITY: 300}
     - {NAME: WandbCheckpointHook, CHECKPOINT_INTERVAL: 100, SAVE_BEST: True,
