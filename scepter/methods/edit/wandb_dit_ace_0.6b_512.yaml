@@ -156,6 +156,14 @@ SOLVER:
     - {NAME: BackwardHook,   PRIORITY: 0}
     - {NAME: LogHook,        LOG_INTERVAL: 50, PRIORITY: 100}
 
+    # ---------------- custom loss logging ----------------
+    - NAME: LogHook
+      LOG_INTERVAL: 10
+      PRIORITY: 101
+      CUSTOM_LOG_PROCESSOR: True
+      SCALAR_ONLY: True
+      TO_WANDB: True
+
     # ---------------- wandb initialiser ----------------
     - {NAME: WandbLogHook,   PRIORITY: 100,                # must come before every other wandb‑hook
       PROJECT_NAME: "scepter-project",                     # Match the default project name in BaseSolver
