@@ -119,10 +119,29 @@ class CSVInRAMDataset(BaseDataset):
         
         # Return in the format expected by the ACE model
         return {
-            'src_image_list': [[source_img]],  # List of list of images
-            'src_mask_list': [[src_mask]],     # List of list of masks
-            'image': target_img,               # Target image
-            'image_mask': tar_mask,            # Target mask
-            'prompt': [[prompt]],              # List of list of prompts
-            'edit_id': [0]                     # Edit IDs
+            'src_image_list': [source_img],  # List of images
+            'src_mask_list': [src_mask],     # List of masks
+            'image': target_img,             # Target image
+            'image_mask': tar_mask,          # Target mask
+            'prompt': [prompt],              # List of prompts
+            'edit_id': [0]                   # Edit IDs
         }
+
+    @staticmethod
+    def collate_fn(batch):
+        """
+        Custom collate function to properly batch items.
+        This ensures items are properly stacked for the model.
+        """
+        batch_dict = {}
+        for k in batch[0].keys():
+            if k in ['src_image_list', 'src_mask_list', 'prompt', 'edit_id']:
+                # For list fields, we need to concatenate them
+                batch_dict[k] = sum([item[k] for item in batch], [])
+            elif k in ['image', 'image_mask']:
+                # For tensor fields, we stack them
+                batch_dict[k] = torch.stack([item[k] for item in batch])
+            else:
+                # Other fields, just collect them
+                batch_dict[k] = [item[k] for item in batch]
+        return batch_dict

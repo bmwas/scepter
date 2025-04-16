@@ -146,6 +146,7 @@ SOLVER:
     NUM_WORKERS: 1
     SAMPLER:
       NAME: LoopSampler
+    COLLATE_FN: CSVInRAMDataset.collate_fn
   #
   VAL_DATA:
     NAME: CSVInRAMDataset
@@ -156,6 +157,7 @@ SOLVER:
     PIN_MEMORY: True
     BATCH_SIZE: 1
     NUM_WORKERS: 1
+    COLLATE_FN: CSVInRAMDataset.collate_fn
   #
   TRAIN_HOOKS:
     # ---------------- core training ----------------
