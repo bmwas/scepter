@@ -70,6 +70,10 @@ class CSVInRAMDataset(BaseDataset):
             T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
 
+    def __len__(self):
+        """Return the number of items in the dataset."""
+        return self.real_number
+
     def _get(self, idx):
         """Get a single item from the dataset."""
         row = self.df.iloc[idx]
