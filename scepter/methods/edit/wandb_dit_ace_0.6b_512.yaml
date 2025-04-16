@@ -150,6 +150,8 @@ SOLVER:
     SAMPLER:
       NAME: LoopSampler
   #
+  DATA: ${VAL_DATA}
+  #
   SAMPLE_ARGS:
     SAMPLER: ddim
     SAMPLE_STEPS: 20
