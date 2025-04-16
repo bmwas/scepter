@@ -163,14 +163,7 @@ SOLVER:
       CUSTOM_LOG_PROCESSOR: True
       SCALAR_ONLY: True
       TO_WANDB: True
-
-    # ---------------- loss metric logging ----------------
-    - NAME: LogMetricHook
-      PRIORITY: 102
-      LOG_INTERVAL: 1
-      METRIC_NAMES: ["loss"]
-      TO_WANDB: True
-      WANDB_METRIC_PREFIX: "metrics/"
+      REPORT_LOSS_ONLY: True
 
     # ---------------- wandb initialiser ----------------
     - NAME: WandbLogHook
@@ -197,5 +190,3 @@ SOLVER:
 
     # ---------------- file/artifact sweeper ---------------
     - {NAME: WandbFileTrackerHook, TRACK_INTERVAL: 30, PRIORITY: 1100}       # :contentReference[oaicite:4]{index=4}
-
-    # ParameterTrackerHook removed due to error: missing required 'param' argument
