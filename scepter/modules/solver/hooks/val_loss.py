@@ -54,7 +54,12 @@ class ValLossHook(Hook):
         self.save_folder = cfg.get('SAVE_FOLDER', 'val_loss')
         self.val_limitation_size = cfg.get('VAL_LIMITATION_SIZE', 1000000)
         self.val_seed = cfg.get('VAL_SEED', 2025)
-        self.data = DATASETS.build(cfg.DATA, logger=logger)
+        data_cfg = getattr(cfg, 'DATA', None)
+        if data_cfg is None:
+            data_cfg = getattr(cfg, 'VAL_DATA', None)
+        if data_cfg is None:
+            raise AttributeError("Neither 'DATA' nor 'VAL_DATA' found in config for ValLossHook.")
+        self.data = DATASETS.build(data_cfg, logger=logger)
 
     def before_all_iter(self, solver):
         solver.eval_mode()
