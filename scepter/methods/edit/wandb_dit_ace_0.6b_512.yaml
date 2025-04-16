@@ -165,7 +165,10 @@ SOLVER:
       LOG_INTERVAL: 50,
       LOG_CROSS_VALIDATION: True,
       CV_PREFIX: "cv/",
-      MONITOR_ALL_METRICS: True}
+      MONITOR_ALL_METRICS: True,
+      SCALAR_PREFIX: "scalar/",    # Add this prefix for scalar metrics
+      PROCESS_LIST_VALUES: True,   # Explicitly process list values as scalars
+      LIST_AGGREGATION: "mean"}    # Aggregate lists using mean for scalar values
 
     # ---------------- checkpoints & metrics ----------------
     - {NAME: CheckpointHook,      INTERVAL: 100,  PRIORITY: 300}
