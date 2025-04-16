@@ -119,10 +119,10 @@ class CSVInRAMDataset(BaseDataset):
         
         # Return in the format expected by the ACE model
         return {
-            'src_image_list': [source_img],  # List of images
-            'src_mask_list': [src_mask],     # List of masks
-            'image': target_img,             # Target image
-            'image_mask': tar_mask,          # Target mask
-            'prompt': [prompt],              # List of prompts
-            'edit_id': [0]                   # Edit IDs
+            'src_image_list': [[source_img]],  # List of list of images
+            'src_mask_list': [[src_mask]],     # List of list of masks
+            'image': target_img,               # Target image
+            'image_mask': tar_mask,            # Target mask
+            'prompt': [[prompt]],              # List of list of prompts
+            'edit_id': [0]                     # Edit IDs
         }
