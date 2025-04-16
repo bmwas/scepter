@@ -129,6 +129,7 @@ class CSVInRAMDataset(BaseDataset):
             'image': target_img,             # Target image
             'image_mask': tar_mask,          # Target mask
             'prompt': [[prompt]],            # List of list of prompts
+            'src_prompt': [[prompt]],        # Source prompt (same as prompt for csv loader)
             'negative_prompt': [[self.negative_prompt]],  # Negative/unconditional prompt, as list of lists
             'edit_id': [0]                   # Edit IDs
         }
@@ -144,12 +145,9 @@ class CSVInRAMDataset(BaseDataset):
             if k in ['src_image_list', 'src_mask_list', 'edit_id']:
                 # For list fields, we need to concatenate them
                 batch_dict[k] = sum([item[k] for item in batch], [])
-            elif k == 'prompt':
-                # For prompt, keep as list of lists
-                batch_dict[k] = [item['prompt'][0] for item in batch]
-            elif k == 'negative_prompt':
-                # For negative_prompt, keep as list of lists
-                batch_dict[k] = [item['negative_prompt'][0] for item in batch]
+            elif k in ['prompt', 'negative_prompt', 'src_prompt']:
+                # For prompt-like fields, keep as list of lists
+                batch_dict[k] = [item[k][0] for item in batch]
             elif k in ['image', 'image_mask']:
                 # For tensor fields, we stack them
                 batch_dict[k] = torch.stack([item[k] for item in batch])
