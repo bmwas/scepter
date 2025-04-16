@@ -135,9 +135,12 @@ class CSVInRAMDataset(BaseDataset):
         """
         batch_dict = {}
         for k in batch[0].keys():
-            if k in ['src_image_list', 'src_mask_list', 'prompt', 'edit_id']:
+            if k in ['src_image_list', 'src_mask_list', 'edit_id']:
                 # For list fields, we need to concatenate them
                 batch_dict[k] = sum([item[k] for item in batch], [])
+            elif k == 'prompt':
+                # For prompt, keep as list of lists
+                batch_dict[k] = [item['prompt'][0] for item in batch]
             elif k in ['image', 'image_mask']:
                 # For tensor fields, we stack them
                 batch_dict[k] = torch.stack([item[k] for item in batch])
