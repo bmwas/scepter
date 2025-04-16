@@ -164,6 +164,14 @@ SOLVER:
       SCALAR_ONLY: True
       TO_WANDB: True
 
+    # ---------------- loss metric logging ----------------
+    - NAME: LogMetricHook
+      PRIORITY: 102
+      LOG_INTERVAL: 1
+      METRIC_NAMES: ["loss"]
+      TO_WANDB: True
+      WANDB_METRIC_PREFIX: "metrics/"
+
     # ---------------- wandb initialiser ----------------
     - NAME: WandbLogHook
       PRIORITY: 100
