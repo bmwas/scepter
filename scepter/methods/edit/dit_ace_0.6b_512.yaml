@@ -131,7 +131,8 @@ SOLVER:
     WEIGHT_DECAY: 5e-4
   #
   TRAIN_DATA:
-    NAME: ImageTextPairMSDatasetForACE
+    NAME: CSVInRAMDataset
+    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/training.csv
     MODE: train
     MS_DATASET_NAME: cache/datasets/hed_pair
     MS_DATASET_NAMESPACE: ""
@@ -143,21 +144,22 @@ SOLVER:
     PIN_MEMORY: True
     BATCH_SIZE: 1
     NUM_WORKERS: 1
-    IMAGE_ROOT_DIR: "./cache/datasets/"
+    IMAGE_ROOT_DIR: "./cache/datasets/therapy_pair/"
     NEGATIVE_PROMPT: ""
     SAMPLER:
       NAME: LoopSampler
+    COLLATE_FN: CSVInRAMDataset.collate_fn
   #
   VAL_DATA:
     NAME: CSVInRAMDataset
-    CSV_PATH: ./cache/datasets/therapy_pair/validation.csv
+    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/validation.csv
     MODE: validation
     PROMPT_PREFIX: ""
     MAX_SEQ_LEN: 1024
     PIN_MEMORY: True
     BATCH_SIZE: 1
     NUM_WORKERS: 1
-    IMAGE_ROOT_DIR: "./cache/datasets/"
+    IMAGE_ROOT_DIR: "./cache/datasets/therapy_pair/"
     NEGATIVE_PROMPT: ""
     COLLATE_FN: CSVInRAMDataset.collate_fn
   #

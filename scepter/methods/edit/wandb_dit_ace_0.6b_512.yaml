@@ -137,14 +137,14 @@ SOLVER:
   #
   TRAIN_DATA:
     NAME: CSVInRAMDataset
-    CSV_PATH: ./cache/datasets/images_therapist/training.csv
+    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/training.csv
     MODE: train
     PROMPT_PREFIX: ""
     MAX_SEQ_LEN: 1024
     PIN_MEMORY: True
     BATCH_SIZE: 1
     NUM_WORKERS: 1
-    IMAGE_ROOT_DIR: "./cache/datasets/"
+    IMAGE_ROOT_DIR: "./cache/datasets/therapy_pair/"
     NEGATIVE_PROMPT: ""
     SAMPLER:
       NAME: LoopSampler
@@ -152,14 +152,14 @@ SOLVER:
   #
   VAL_DATA:
     NAME: CSVInRAMDataset
-    CSV_PATH: ./cache/datasets/images_therapist/validation.csv
+    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/validation.csv
     MODE: validation
     PROMPT_PREFIX: ""
     MAX_SEQ_LEN: 1024
     PIN_MEMORY: True
     BATCH_SIZE: 1
     NUM_WORKERS: 1
-    IMAGE_ROOT_DIR: "./cache/datasets/"
+    IMAGE_ROOT_DIR: "./cache/datasets/therapy_pair/"
     NEGATIVE_PROMPT: ""
     COLLATE_FN: CSVInRAMDataset.collate_fn
   #
