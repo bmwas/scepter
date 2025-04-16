@@ -79,7 +79,9 @@ class CSVInRAMDataset(BaseDataset):
     def __len__(self):
         """Return the number of items in the dataset."""
         if self.mode == 'train':
-            return sys.maxsize  # For training, this allows infinite iterations
+            # We're using LoopSampler for training, so return a reasonable size
+            # instead of sys.maxsize to avoid overflow with default samplers
+            return self.real_number
         else:
             return self.real_number
 
