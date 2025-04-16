@@ -136,21 +136,28 @@ SOLVER:
     GAMMA: 0.5
   #
   TRAIN_DATA:
-    NAME: CSVInRAMDataset
-    CSV_PATH: ./cache/datasets/therapy_pair/training.csv
-    KEY: image_path        # your column name in the CSV
-    VALUE: caption         # your column name in the CSV
+    NAME: HFDataset
+    DATASET_TYPE: csv
+    DATA_FILES:
+      train: ./cache/datasets/therapy_pair/training.csv
+    SPLIT: train
+    FEATURES:
+      - { name: "image_path", dtype: "string" }
+      - { name: "caption",    dtype: "string" }
     BATCH_SIZE: 1
     NUM_WORKERS: 1
 
   VAL_DATA:
-    NAME: CSVInRAMDataset
-    CSV_PATH: ./cache/datasets/therapy_pair/validation.csv
-    KEY: image_path
-    VALUE: caption
+    NAME: HFDataset
+    DATASET_TYPE: csv
+    DATA_FILES:
+      val: ./cache/datasets/therapy_pair/validation.csv
+    SPLIT: val
+    FEATURES:
+      - { name: "image_path", dtype: "string" }
+      - { name: "caption",    dtype: "string" }
     BATCH_SIZE: 1
     NUM_WORKERS: 1
-    
   
   #
   TRAIN_HOOKS:
