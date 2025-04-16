@@ -338,8 +338,6 @@ class WandbLogHook(Hook):
             for key, value in outputs.items():
                 # Special handling for loss values
                 if key == 'loss' or key.endswith('_loss'):
-                    print(f"WANDB DEBUG - PROCESSING LOSS KEY: {key}, VALUE: {value}")
-                    
                     # Ensure loss is logged as a scalar
                     if isinstance(value, list):
                         # If loss is a list, take the first element (current loss)
@@ -433,17 +431,6 @@ class WandbLogHook(Hook):
                     if 'lr' in param_group:
                         wandb_metrics[f"lr/group_{i}"] = param_group['lr']
                         wandb_metrics[f"{solver.mode}/lr/group_{i}"] = param_group['lr']
-
-            # FORCE LOG DIRECT LOSS: Create explicit loss metrics guaranteed to work
-            if hasattr(solver, 'loss_value') and solver.loss_value is not None:
-                try:
-                    explicit_loss = solver.loss_value
-                    if isinstance(explicit_loss, torch.Tensor):
-                        explicit_loss = explicit_loss.item() if explicit_loss.numel() == 1 else explicit_loss.mean().item()
-                    wandb_metrics["forced/loss"] = explicit_loss
-                    print(f"FORCED LOSS LOGGING: {explicit_loss}")
-                except Exception as e:
-                    print(f"ERROR IN FORCED LOSS LOGGING: {e}")
 
             # Add system metrics
             if torch.cuda.is_available():
