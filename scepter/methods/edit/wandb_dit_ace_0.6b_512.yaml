@@ -181,23 +181,3 @@ SOLVER:
     - {NAME: WandbFileTrackerHook, TRACK_INTERVAL: 30, PRIORITY: 1100}       # :contentReference[oaicite:4]{index=4}
 
     # ParameterTrackerHook removed due to error: missing required 'param' argument
-
-    - {NAME: WandbValLossHook, PRIORITY: 250}
-
-    - {NAME: WandbValLossHook, PRIORITY: 250}
-
-      DATA:
-        NAME: ImageTextPairMSDatasetForACE
-        MODE: val
-        MS_DATASET_NAME: cache/datasets/therapy_pair
-        MS_DATASET_NAMESPACE: ""
-        MS_DATASET_SPLIT: "train"
-        MS_DATASET_SUBNAME: ""
-        PROMPT_PREFIX: ""
-        REPLACE_STYLE: False
-        MAX_SEQ_LEN: 1024
-        PIN_MEMORY: True
-        BATCH_SIZE: 1
-        NUM_WORKERS: 1
-        SAMPLER:
-          NAME: LoopSampler
