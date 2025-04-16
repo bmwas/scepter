@@ -71,7 +71,24 @@ def _print_iter_log(solver, outputs, final=False, start_time=0, mode=None):
 
     if 'loss' in outputs:
         v = outputs['loss']
-        s.insert(0, 'loss: ' + _print_v(v[0]) + f'({_print_v(v[1])})')
+        # Handle case where v is a scalar tensor or single value
+        if isinstance(v, torch.Tensor) and v.dim() == 0:
+            # Convert scalar tensor to float
+            current_loss = v.item()
+            avg_loss = current_loss  # We don't have average, use current as both
+            s.insert(0, f'loss: {_print_v(current_loss)}({_print_v(avg_loss)})')
+        elif isinstance(v, (int, float)):
+            # Handle simple numeric values
+            current_loss = float(v)
+            avg_loss = current_loss
+            s.insert(0, f'loss: {_print_v(current_loss)}({_print_v(avg_loss)})')
+        else:
+            # Original behavior for list/tensor with at least 2 elements
+            try:
+                s.insert(0, 'loss: ' + _print_v(v[0]) + f'({_print_v(v[1])})')
+            except (IndexError, TypeError):
+                # Fallback for any other type
+                s.insert(0, f'loss: {_print_v(v)}(n/a)')
 
     if 'time' in outputs:
         v = outputs['time']
