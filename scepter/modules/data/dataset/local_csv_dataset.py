@@ -123,7 +123,7 @@ class CSVInRAMDataset(BaseDataset):
             'src_mask_list': [src_mask],     # List of masks
             'image': target_img,             # Target image
             'image_mask': tar_mask,          # Target mask
-            'prompt': [prompt],              # List of prompts
+            'prompt': [[prompt]],            # List of list of prompts
             'edit_id': [0]                   # Edit IDs
         }
 
