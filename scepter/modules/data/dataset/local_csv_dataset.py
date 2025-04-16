@@ -52,11 +52,11 @@ class CSVInRAMDataset(BaseDataset):
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"CSV file not found: {csv_path}")
             
-        # Load CSV data
-        self.df = pd.read_csv(csv_path, sep='\t')  # Using tab delimiter based on screenshot
+        # Load CSV data - using comma as delimiter
+        self.df = pd.read_csv(csv_path)
         
         # Check for required columns
-        required_columns = ['Source:FILE', 'Target:FILE', 'Prompt']
+        required_columns = ['Source:FILE', 'Prompt']
         missing_columns = [col for col in required_columns if col not in self.df.columns]
         if missing_columns:
             raise ValueError(f"Missing required columns in CSV: {missing_columns}")
@@ -84,15 +84,8 @@ class CSVInRAMDataset(BaseDataset):
             # Return a placeholder
             source_img = torch.zeros((3, 512, 512))
         
-        # Load target image (used for ground truth)
-        target_path = row['Target:FILE']
-        try:
-            target_img = Image.open(target_path).convert("RGB")
-            target_img = self.transforms(target_img)
-        except Exception as e:
-            self.logger.error(f"Error loading target image {target_path}: {e}")
-            # Return a placeholder
-            target_img = torch.zeros((3, 512, 512))
+        # Use source as target since Target:FILE is not available
+        target_img = source_img
         
         # Get caption/prompt
         prompt = row['Prompt']
@@ -105,7 +98,7 @@ class CSVInRAMDataset(BaseDataset):
             "target": target_img,
             "meta": {
                 "source_path": source_path,
-                "target_path": target_path
+                "target_path": source_path  # Use source path as target path
             },
             "prompt": prompt
         }
