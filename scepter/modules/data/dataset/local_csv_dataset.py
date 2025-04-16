@@ -5,6 +5,7 @@ import torch
 import os
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
+import sys
 
 from scepter.modules.data.dataset.base_dataset import BaseDataset
 from scepter.modules.data.dataset.registry import DATASETS
@@ -36,6 +37,10 @@ class CSVInRAMDataset(BaseDataset):
         'MAX_SEQ_LEN': {
             'value': 1024,
             'description': 'Maximum sequence length for text'
+        },
+        'ADD_INDICATOR': {
+            'value': False,
+            'description': 'Add {image} indicator to prompt if not present'
         }
     }
 
@@ -47,6 +52,7 @@ class CSVInRAMDataset(BaseDataset):
         self.mode = cfg.get('MODE', 'train')
         self.prompt_prefix = cfg.get('PROMPT_PREFIX', '')
         self.max_seq_len = cfg.get('MAX_SEQ_LEN', 1024)
+        self.add_indicator = cfg.get('ADD_INDICATOR', False)
         
         # Check if file exists
         if not os.path.exists(csv_path):
@@ -72,11 +78,15 @@ class CSVInRAMDataset(BaseDataset):
 
     def __len__(self):
         """Return the number of items in the dataset."""
-        return self.real_number
+        if self.mode == 'train':
+            return sys.maxsize  # For training, this allows infinite iterations
+        else:
+            return self.real_number
 
     def _get(self, idx):
         """Get a single item from the dataset."""
-        row = self.df.iloc[idx]
+        # For infinite dataset, wrap around the index
+        row = self.df.iloc[idx % self.real_number]
         
         # Load source image (used for input)
         source_path = row['Source:FILE']
@@ -91,18 +101,26 @@ class CSVInRAMDataset(BaseDataset):
         # Use source as target since Target:FILE is not available
         target_img = source_img
         
+        # Create masks (ones tensors with same spatial dimensions as images)
+        src_mask = torch.ones_like(source_img[[0]])  # Take first channel and make mask
+        tar_mask = torch.ones_like(target_img[[0]])
+        
         # Get caption/prompt
         prompt = row['Prompt']
         if self.prompt_prefix:
             prompt = f"{self.prompt_prefix} {prompt}"
+            
+        # Add image indicator if needed
+        if self.add_indicator:
+            if '{image}' not in prompt:
+                prompt = '{image}, ' + prompt
         
-        # Return in the format expected by the model
+        # Return in the format expected by the ACE model
         return {
-            "source": source_img,
-            "target": target_img,
-            "meta": {
-                "source_path": source_path,
-                "target_path": source_path  # Use source path as target path
-            },
-            "prompt": prompt
+            'src_image_list': [source_img],  # List of images
+            'src_mask_list': [src_mask],     # List of masks
+            'image': target_img,             # Target image
+            'image_mask': tar_mask,          # Target mask
+            'prompt': [prompt],              # List of prompts
+            'edit_id': [0]                   # Edit IDs
         }
