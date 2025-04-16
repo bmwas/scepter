@@ -163,6 +163,61 @@ SOLVER:
       TAGS: [ACE, 0.6B],
       SAVE_CODE: True}
 
+    # ---------------- wandb loss tracking ----------------
+    - {NAME: WandbLogHook,   PRIORITY: 101,                # must come before every other wandb‑hook
+      PROJECT_NAME: "scepter-project",                     # Match the default project name in BaseSolver
+      RUN_NAME: "ace_0.6b_512_final",
+      TAGS: [ACE, 0.6B],
+      SAVE_CODE: True,
+      LOG_INTERVAL: 10}
+
+    # ---------------- custom loss tracking hook ----------------
+    - NAME: HookBase
+      PRIORITY: 40
+      TARGET: LossTrackingHook
+      HOOK_IMPL: |
+        class LossTrackingHook:
+            para_dict = [{
+                'PRIORITY': {
+                    'value': 40,
+                    'description': 'Priority for processing'
+                }
+            }]
+            
+            def __init__(self, cfg, logger=None):
+                self.priority = cfg.get('PRIORITY', 40)
+                self.logger = logger
+                
+            def before_iter(self, solver):
+                pass
+                
+            def after_iter(self, solver):
+                # Capture loss directly from outputs 
+                try:
+                    if 'loss' in solver.iter_outputs:
+                        loss_val = solver.iter_outputs['loss']
+                        # Store raw value first
+                        solver.loss_value = loss_val
+                        
+                        # Also store processed value
+                        if isinstance(loss_val, torch.Tensor):
+                            if loss_val.numel() == 1:
+                                solver.loss_value_scalar = loss_val.item()
+                            else:
+                                solver.loss_value_scalar = loss_val.mean().item()
+                        elif isinstance(loss_val, (list, tuple)) and len(loss_val) > 0:
+                            if isinstance(loss_val[0], torch.Tensor):
+                                solver.loss_value_scalar = loss_val[0].item()
+                            else:
+                                solver.loss_value_scalar = float(loss_val[0])
+                        else:
+                            solver.loss_value_scalar = float(loss_val)
+                            
+                        # Print captured value    
+                        print(f"LOSS TRACKER: Captured loss={solver.loss_value_scalar}")
+                except Exception as e:
+                    print(f"LOSS TRACKER ERROR: {e}")
+
     # ---------------- checkpoints & metrics ----------------
     - {NAME: CheckpointHook,      INTERVAL: 100,  PRIORITY: 300}
     - {NAME: WandbCheckpointHook, CHECKPOINT_INTERVAL: 100, SAVE_BEST: True,

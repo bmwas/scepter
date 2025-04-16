@@ -315,6 +315,18 @@ class WandbLogHook(Hook):
             extra_vars = solver.collect_log_vars()
             outputs.update(extra_vars)
 
+            # DEBUG: Print available metrics and loss format
+            if solver.total_iter % 10 == 0:
+                print(f"WANDB DEBUG - AVAILABLE METRICS: {list(outputs.keys())}")
+                print(f"WANDB DEBUG - LOSS FORMAT: {outputs.get('loss', 'NOT FOUND')}")
+                if 'loss' in outputs:
+                    loss_val = outputs['loss']
+                    print(f"WANDB DEBUG - LOSS TYPE: {type(loss_val)}")
+                    if isinstance(loss_val, torch.Tensor):
+                        print(f"WANDB DEBUG - LOSS TENSOR INFO: shape={loss_val.shape}, dim={loss_val.dim()}, numel={loss_val.numel()}")
+                        if loss_val.numel() == 1:
+                            print(f"WANDB DEBUG - SCALAR VALUE: {loss_val.item()}")
+
             # Create a dictionary for wandb metrics
             wandb_metrics = {}
             
@@ -326,6 +338,8 @@ class WandbLogHook(Hook):
             for key, value in outputs.items():
                 # Special handling for loss values
                 if key == 'loss' or key.endswith('_loss'):
+                    print(f"WANDB DEBUG - PROCESSING LOSS KEY: {key}, VALUE: {value}")
+                    
                     # Ensure loss is logged as a scalar
                     if isinstance(value, list):
                         # If loss is a list, take the first element (current loss)
@@ -419,6 +433,17 @@ class WandbLogHook(Hook):
                     if 'lr' in param_group:
                         wandb_metrics[f"lr/group_{i}"] = param_group['lr']
                         wandb_metrics[f"{solver.mode}/lr/group_{i}"] = param_group['lr']
+
+            # FORCE LOG DIRECT LOSS: Create explicit loss metrics guaranteed to work
+            if hasattr(solver, 'loss_value') and solver.loss_value is not None:
+                try:
+                    explicit_loss = solver.loss_value
+                    if isinstance(explicit_loss, torch.Tensor):
+                        explicit_loss = explicit_loss.item() if explicit_loss.numel() == 1 else explicit_loss.mean().item()
+                    wandb_metrics["forced/loss"] = explicit_loss
+                    print(f"FORCED LOSS LOGGING: {explicit_loss}")
+                except Exception as e:
+                    print(f"ERROR IN FORCED LOSS LOGGING: {e}")
 
             # Add system metrics
             if torch.cuda.is_available():
