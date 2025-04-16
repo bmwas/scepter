@@ -3,9 +3,12 @@ import pandas as pd
 from PIL import Image
 import torch
 import os
+import torchvision.transforms as T
+from torchvision.transforms.functional import InterpolationMode
 
 from scepter.modules.data.dataset.base_dataset import BaseDataset
 from scepter.modules.data.dataset.registry import DATASETS
+from scepter.modules.utils.file_system import FS
 
 @DATASETS.register_class()
 class CSVInRAMDataset(BaseDataset):
@@ -15,64 +18,94 @@ class CSVInRAMDataset(BaseDataset):
     Args:
         cfg: Configuration with the following keys:
             CSV_PATH: Path to the CSV file
-            KEY: Column name containing image paths
-            VALUE: Column name containing caption text
+            MODE: Dataset mode (train, validation, etc.)
     """
     para_dict = {
         'CSV_PATH': {
             'value': '',
             'description': 'Path to the CSV file'
         },
-        'KEY': {
-            'value': 'image_path',
-            'description': 'Column name containing image paths'
+        'MODE': {
+            'value': 'train',
+            'description': 'Dataset mode (train, validation, etc.)'
         },
-        'VALUE': {
-            'value': 'caption',
-            'description': 'Column name containing caption text'
+        'PROMPT_PREFIX': {
+            'value': '',
+            'description': 'Prefix to add to all prompts'
+        },
+        'MAX_SEQ_LEN': {
+            'value': 1024,
+            'description': 'Maximum sequence length for text'
         }
     }
 
     def __init__(self, cfg, logger=None):
         super(CSVInRAMDataset, self).__init__(cfg, logger=logger)
         
-        # Load CSV data
+        # Load configuration
         csv_path = cfg.CSV_PATH
+        self.mode = cfg.get('MODE', 'train')
+        self.prompt_prefix = cfg.get('PROMPT_PREFIX', '')
+        self.max_seq_len = cfg.get('MAX_SEQ_LEN', 1024)
+        
+        # Check if file exists
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"CSV file not found: {csv_path}")
             
-        self.df = pd.read_csv(csv_path)
-        self.key = cfg.get('KEY', 'image_path')
-        self.value = cfg.get('VALUE', 'caption')
+        # Load CSV data
+        self.df = pd.read_csv(csv_path, sep='\t')  # Using tab delimiter based on screenshot
         
-        # Verify columns exist
-        if self.key not in self.df.columns:
-            raise ValueError(f"Column '{self.key}' not found in CSV")
-        if self.value not in self.df.columns:
-            raise ValueError(f"Column '{self.value}' not found in CSV")
+        # Check for required columns
+        required_columns = ['Source:FILE', 'Target:FILE', 'Prompt']
+        missing_columns = [col for col in required_columns if col not in self.df.columns]
+        if missing_columns:
+            raise ValueError(f"Missing required columns in CSV: {missing_columns}")
             
         self.real_number = len(self.df)
         self.logger.info(f"Loaded {self.real_number} samples from {csv_path}")
+        
+        # Setup transforms
+        self.transforms = T.Compose([
+            T.ToTensor(),
+            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        ])
 
     def _get(self, idx):
         """Get a single item from the dataset."""
         row = self.df.iloc[idx]
         
-        # Load and process image
-        img_path = row[self.key]
+        # Load source image (used for input)
+        source_path = row['Source:FILE']
         try:
-            img = Image.open(img_path).convert("RGB")
+            source_img = Image.open(source_path).convert("RGB")
+            source_img = self.transforms(source_img)
         except Exception as e:
-            self.logger.error(f"Error loading image {img_path}: {e}")
-            # Return a placeholder or alternative
-            img = Image.new("RGB", (512, 512), color="gray")
+            self.logger.error(f"Error loading source image {source_path}: {e}")
+            # Return a placeholder
+            source_img = torch.zeros((3, 512, 512))
         
-        # Get caption
-        caption = row[self.value]
+        # Load target image (used for ground truth)
+        target_path = row['Target:FILE']
+        try:
+            target_img = Image.open(target_path).convert("RGB")
+            target_img = self.transforms(target_img)
+        except Exception as e:
+            self.logger.error(f"Error loading target image {target_path}: {e}")
+            # Return a placeholder
+            target_img = torch.zeros((3, 512, 512))
+        
+        # Get caption/prompt
+        prompt = row['Prompt']
+        if self.prompt_prefix:
+            prompt = f"{self.prompt_prefix} {prompt}"
         
         # Return in the format expected by the model
         return {
-            "meta": {"image_path": img_path},
-            "prompt": caption,
-            "image": img
+            "source": source_img,
+            "target": target_img,
+            "meta": {
+                "source_path": source_path,
+                "target_path": target_path
+            },
+            "prompt": prompt
         }
