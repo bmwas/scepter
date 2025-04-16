@@ -138,7 +138,7 @@ SOLVER:
   TRAIN_DATA:
     NAME: ImageTextPairMSDatasetForACE
     MS_DATASET_NAME: ./cache/datasets/therapy_pair
-    MS_DATASET_SPLIT: train
+    MS_DATASET_SPLIT: training
     BATCH_SIZE: 1
     NUM_WORKERS: 1
 
