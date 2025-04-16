@@ -45,6 +45,10 @@ class CSVInRAMDataset(BaseDataset):
         'NEGATIVE_PROMPT': {
             'value': '',
             'description': 'Negative/unconditional prompt to use'
+        },
+        'IMAGE_ROOT_DIR': {
+            'value': './cache/datasets/',
+            'description': 'Root directory to prepend to image paths in CSV'
         }
     }
 
@@ -58,6 +62,7 @@ class CSVInRAMDataset(BaseDataset):
         self.max_seq_len = cfg.get('MAX_SEQ_LEN', 1024)
         self.add_indicator = cfg.get('ADD_INDICATOR', False)
         self.negative_prompt = cfg.get('NEGATIVE_PROMPT', '')
+        self.image_root_dir = cfg.get('IMAGE_ROOT_DIR', './cache/datasets/')
         
         # Check if file exists
         if not os.path.exists(csv_path):
@@ -96,7 +101,16 @@ class CSVInRAMDataset(BaseDataset):
         row = self.df.iloc[idx % self.real_number]
         
         # Load source image (used for input)
-        source_path = row['Source:FILE']
+        image_path = row['Source:FILE']
+        # Prepend the root directory if the path doesn't already have it
+        if self.image_root_dir and not os.path.isabs(image_path):
+            if not image_path.startswith(self.image_root_dir):
+                source_path = os.path.join(self.image_root_dir, image_path)
+            else:
+                source_path = image_path
+        else:
+            source_path = image_path
+        
         try:
             source_img = Image.open(source_path).convert("RGB")
             source_img = self.transforms(source_img)
@@ -140,10 +154,6 @@ class CSVInRAMDataset(BaseDataset):
         Custom collate function to properly batch items.
         This ensures items are properly stacked for the model.
         """
-        # Debug prints
-        print(f"Input structure for prompt: {batch[0]['prompt']}")
-        print(f"Input structure for src_image_list: {type(batch[0]['src_image_list'])}, {len(batch[0]['src_image_list'])}")
-        
         batch_dict = {}
         for k in batch[0].keys():
             if k in ['edit_id']:
@@ -167,11 +177,5 @@ class CSVInRAMDataset(BaseDataset):
             else:
                 # Other fields, just collect them
                 batch_dict[k] = [item[k] for item in batch]
-        
-        # Debug the output structure
-        print(f"Output structure for prompt: {batch_dict['prompt']}")
-        print(f"Is prompt list of lists: {isinstance(batch_dict['prompt'], list) and all(isinstance(p, list) for p in batch_dict['prompt'])}")
-        print(f"Output structure for src_image_list: {type(batch_dict['src_image_list'])}, {len(batch_dict['src_image_list'])}")
-        print(f"Is src_image_list list of lists: {isinstance(batch_dict['src_image_list'], list) and all(isinstance(p, list) for p in batch_dict['src_image_list'])}")
         
         return batch_dict

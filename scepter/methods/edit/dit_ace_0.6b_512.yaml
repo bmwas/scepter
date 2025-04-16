@@ -143,8 +143,23 @@ SOLVER:
     PIN_MEMORY: True
     BATCH_SIZE: 1
     NUM_WORKERS: 1
+    IMAGE_ROOT_DIR: "./cache/datasets/"
+    NEGATIVE_PROMPT: ""
     SAMPLER:
       NAME: LoopSampler
+  #
+  VAL_DATA:
+    NAME: CSVInRAMDataset
+    CSV_PATH: ./cache/datasets/therapy_pair/validation.csv
+    MODE: validation
+    PROMPT_PREFIX: ""
+    MAX_SEQ_LEN: 1024
+    PIN_MEMORY: True
+    BATCH_SIZE: 1
+    NUM_WORKERS: 1
+    IMAGE_ROOT_DIR: "./cache/datasets/"
+    NEGATIVE_PROMPT: ""
+    COLLATE_FN: CSVInRAMDataset.collate_fn
   #
   TRAIN_HOOKS:
     -

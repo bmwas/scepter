@@ -144,6 +144,8 @@ SOLVER:
     PIN_MEMORY: True
     BATCH_SIZE: 1
     NUM_WORKERS: 1
+    IMAGE_ROOT_DIR: "./cache/datasets/"
+    NEGATIVE_PROMPT: ""
     SAMPLER:
       NAME: LoopSampler
     COLLATE_FN: CSVInRAMDataset.collate_fn
@@ -157,6 +159,8 @@ SOLVER:
     PIN_MEMORY: True
     BATCH_SIZE: 1
     NUM_WORKERS: 1
+    IMAGE_ROOT_DIR: "./cache/datasets/"
+    NEGATIVE_PROMPT: ""
     COLLATE_FN: CSVInRAMDataset.collate_fn
   #
   TRAIN_HOOKS:
