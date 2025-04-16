@@ -124,8 +124,8 @@ class CSVInRAMDataset(BaseDataset):
         
         # Return in the format expected by the ACE model
         return {
-            'src_image_list': [source_img],  # List of images
-            'src_mask_list': [src_mask],     # List of masks
+            'src_image_list': [[source_img]],  # Double wrap for list of lists
+            'src_mask_list': [[src_mask]],     # Double wrap for list of lists
             'image': target_img,             # Target image
             'image_mask': tar_mask,          # Target mask
             'prompt': [[prompt]],            # List of list of prompts
@@ -142,15 +142,21 @@ class CSVInRAMDataset(BaseDataset):
         """
         # Debug prints
         print(f"Input structure for prompt: {batch[0]['prompt']}")
+        print(f"Input structure for src_image_list: {type(batch[0]['src_image_list'])}, {len(batch[0]['src_image_list'])}")
         
         batch_dict = {}
         for k in batch[0].keys():
-            if k in ['src_image_list', 'src_mask_list', 'edit_id']:
-                # For list fields, we need to concatenate them
+            if k in ['edit_id']:
+                # For simple list fields, concatenate them
                 batch_dict[k] = sum([item[k] for item in batch], [])
+            elif k in ['src_image_list', 'src_mask_list']:
+                # For these lists of lists of tensors, maintain structure
+                values = []
+                for item in batch:
+                    values.extend(item[k])  # Extend to preserve list of lists structure
+                batch_dict[k] = values
             elif k in ['prompt', 'negative_prompt', 'src_prompt']:
-                # Keep the exact structure for prompt [[prompt_str]]:
-                # Each item in batch is already [[prompt_str]], so we just combine them
+                # For prompt-like fields, keep as list of lists
                 values = []
                 for item in batch:
                     values.extend(item[k])  # Extend, not append, to keep the list structure
@@ -165,5 +171,7 @@ class CSVInRAMDataset(BaseDataset):
         # Debug the output structure
         print(f"Output structure for prompt: {batch_dict['prompt']}")
         print(f"Is prompt list of lists: {isinstance(batch_dict['prompt'], list) and all(isinstance(p, list) for p in batch_dict['prompt'])}")
+        print(f"Output structure for src_image_list: {type(batch_dict['src_image_list'])}, {len(batch_dict['src_image_list'])}")
+        print(f"Is src_image_list list of lists: {isinstance(batch_dict['src_image_list'], list) and all(isinstance(p, list) for p in batch_dict['src_image_list'])}")
         
         return batch_dict
