@@ -181,3 +181,5 @@ SOLVER:
     - {NAME: WandbFileTrackerHook, TRACK_INTERVAL: 30, PRIORITY: 1100}       # :contentReference[oaicite:4]{index=4}
 
     # ParameterTrackerHook removed due to error: missing required 'param' argument
+
+    - {NAME: WandbValLossHook, PRIORITY: 250}
