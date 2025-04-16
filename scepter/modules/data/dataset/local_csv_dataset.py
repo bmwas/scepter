@@ -140,18 +140,30 @@ class CSVInRAMDataset(BaseDataset):
         Custom collate function to properly batch items.
         This ensures items are properly stacked for the model.
         """
+        # Debug prints
+        print(f"Input structure for prompt: {batch[0]['prompt']}")
+        
         batch_dict = {}
         for k in batch[0].keys():
             if k in ['src_image_list', 'src_mask_list', 'edit_id']:
                 # For list fields, we need to concatenate them
                 batch_dict[k] = sum([item[k] for item in batch], [])
             elif k in ['prompt', 'negative_prompt', 'src_prompt']:
-                # For prompt-like fields, keep as list of lists
-                batch_dict[k] = [item[k][0] for item in batch]
+                # Keep the exact structure for prompt [[prompt_str]]:
+                # Each item in batch is already [[prompt_str]], so we just combine them
+                values = []
+                for item in batch:
+                    values.extend(item[k])  # Extend, not append, to keep the list structure
+                batch_dict[k] = values
             elif k in ['image', 'image_mask']:
                 # For tensor fields, we stack them
                 batch_dict[k] = torch.stack([item[k] for item in batch])
             else:
                 # Other fields, just collect them
                 batch_dict[k] = [item[k] for item in batch]
+        
+        # Debug the output structure
+        print(f"Output structure for prompt: {batch_dict['prompt']}")
+        print(f"Is prompt list of lists: {isinstance(batch_dict['prompt'], list) and all(isinstance(p, list) for p in batch_dict['prompt'])}")
+        
         return batch_dict
