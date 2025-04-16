@@ -136,16 +136,18 @@ SOLVER:
     GAMMA: 0.5
   #
   TRAIN_DATA:
-    NAME: ImageTextPairMSDatasetForACE
-    MS_DATASET_NAME: ./cache/datasets/therapy_pair
-    MS_DATASET_SPLIT: training
+    NAME: CSVInRAMDataset
+    CSV_PATH: ./cache/datasets/therapy_pair/training.csv
+    KEY: image_path
+    VALUE: caption
     BATCH_SIZE: 1
     NUM_WORKERS: 1
 
   VAL_DATA:
-    NAME: ImageTextPairMSDatasetForACE
-    MS_DATASET_NAME: ./cache/datasets/therapy_pair
-    MS_DATASET_SPLIT: validation
+    NAME: CSVInRAMDataset
+    CSV_PATH: ./cache/datasets/therapy_pair/validation.csv
+    KEY: image_path
+    VALUE: caption
     BATCH_SIZE: 1
     NUM_WORKERS: 1
   
