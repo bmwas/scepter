@@ -137,7 +137,7 @@ SOLVER:
   #
   TRAIN_DATA:
     NAME: CSVInRAMDataset
-    CSV_PATH: ./cache/datasets/therapy_pair/training.csv
+    CSV_PATH: ./cache/datasets/images_therapist/training.csv
     MODE: train
     PROMPT_PREFIX: ""
     MAX_SEQ_LEN: 1024
@@ -152,7 +152,7 @@ SOLVER:
   #
   VAL_DATA:
     NAME: CSVInRAMDataset
-    CSV_PATH: ./cache/datasets/therapy_pair/validation.csv
+    CSV_PATH: ./cache/datasets/images_therapist/validation.csv
     MODE: validation
     PROMPT_PREFIX: ""
     MAX_SEQ_LEN: 1024
