@@ -146,34 +146,36 @@ SOLVER:
     WARMUP_STEPS: 100
   #
   TRAIN_DATA:
-    NAME: CSVInRAMDataset
-    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/training.csv
+    NAME: ImageTextPairMSDatasetForACE
     MODE: train
+    MS_DATASET_NAME: cache/datasets/therapy_pair
+    MS_DATASET_NAMESPACE: ""
+    MS_DATASET_SPLIT: "train"
+    MS_DATASET_SUBNAME: ""
     PROMPT_PREFIX: ""
+    REPLACE_STYLE: False
     MAX_SEQ_LEN: 1024
     PIN_MEMORY: True
     BATCH_SIZE: 4
     NUM_WORKERS: 1
-    IMAGE_ROOT_DIR: "./cache/datasets/therapy_pair/"
-    NEGATIVE_PROMPT: ""
     SAMPLER:
       NAME: LoopSampler
       SHUFFLE: true  # Ensure random batch order to avoid sequence-related spikes
-    COLLATE_FN: CSVInRAMDataset.collate_fn
     DROP_LAST: true  # Drop incomplete batches which can cause instability
   #
   VAL_DATA:
-    NAME: CSVInRAMDataset
-    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/validation.csv
+    NAME: ImageTextPairMSDatasetForACE
     MODE: validation
+    MS_DATASET_NAME: cache/datasets/therapy_pair
+    MS_DATASET_NAMESPACE: ""
+    MS_DATASET_SPLIT: "validation"
+    MS_DATASET_SUBNAME: ""
     PROMPT_PREFIX: ""
+    REPLACE_STYLE: False
     MAX_SEQ_LEN: 1024
     PIN_MEMORY: True
     BATCH_SIZE: 4
     NUM_WORKERS: 1
-    IMAGE_ROOT_DIR: "./cache/datasets/therapy_pair/"
-    NEGATIVE_PROMPT: ""
-    COLLATE_FN: CSVInRAMDataset.collate_fn
   #
   TRAIN_HOOKS:
     # ---------------- core training ----------------
