@@ -110,12 +110,20 @@ class WandbValLossHook(ValLossHook):
             return
             
         try:
+            self.logger.info(f"WandbValLossHook: compute_results keys at step {step}: {list(compute_results.keys())}")
             # Log validation metrics to wandb
             log_dict = {}
             
             # Log summary metrics
             for k, v in compute_results.items():
                 log_dict[f"val_loss/{k}"] = v
+            
+            # Ensure 'val_loss/all' is always present if possible
+            if 'all' not in compute_results and len(compute_results) > 0:
+                # Use the first available metric as 'all'
+                first_key = next(iter(compute_results))
+                log_dict["val_loss/all"] = compute_results[first_key]
+                self.logger.warning(f"'all' not in compute_results, logging '{first_key}' as 'val_loss/all'")
             
             # Log to wandb
             self.wandb_run.log(log_dict, step=step)
