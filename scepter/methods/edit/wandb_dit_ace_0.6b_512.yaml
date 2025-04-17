@@ -183,7 +183,11 @@ SOLVER:
       SAVE_CODE: True,
       LOG_INTERVAL: 10}
     # ---------------- checkpoints & metrics ----------------
-    - {NAME: CheckpointHook,      INTERVAL: 100,  PRIORITY: 300}
+    - {NAME: CheckpointHook,      INTERVAL: 100,  PRIORITY: 300,
+      PUSH_TO_HUB: true,
+      HUB_MODEL_ID: "Benson/ace-model-0.6b-512",  # Change to your desired repo name
+      HUB_PRIVATE: false,
+      HUB_TOKEN: ${env:HUGGINGFACE_TOKEN}}
     - {NAME: WandbCheckpointHook, CHECKPOINT_INTERVAL: 100, SAVE_BEST: True,
       SAVE_BEST_BY: "+loss",     PRIORITY: 300}            # :contentReference[oaicite:0]{index=0}
 
