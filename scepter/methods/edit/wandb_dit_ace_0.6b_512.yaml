@@ -39,7 +39,8 @@ SOLVER:
     DECODER_BIAS: 0.5
     DEFAULT_N_PROMPT:
     USE_EMA: True
-    EVAL_EMA: False
+    EMA_DECAY: 0.9999
+    EVAL_EMA: True
     TEXT_IDENTIFIER: [ '{image}', '{image1}', '{image2}', '{image3}', '{image4}', '{image5}', '{image6}', '{image7}', '{image8}', '{image9}' ]
     USE_TEXT_POS_EMBEDDINGS: True
     #
@@ -129,25 +130,13 @@ SOLVER:
     LEARNING_RATE: 1e-7
     EPS: 1e-10
     WEIGHT_DECAY: 5e-4
+    CLIP_GRAD_NORM: 1.0
   #
-  # ─── learning‑rate schedule (replace entire LR_SCHEDULER block) ───
   LR_SCHEDULER:
-    # ①  linear warm‑up from 0.1 % → 100 % LR over 100 steps
-    - NAME: LinearLR          # warm‑up
-      START_FACTOR: 0.001     # 0.1 % of base LR at step 0
-      END_FACTOR:   1.0       # reach full LR at step 100
-      BEGIN:        0
-      END:          100       # = WARMUP_STEPS
-      BY_EPOCH:     False
-
-    # ②  smooth cosine decay for the remaining 900 steps
-    - NAME: CosineAnnealingLR
-      T_MAX:        900       # MAX_STEPS ‑ WARMUP_STEPS
-      ETA_MIN:      1e-7      # floor LR
-      BEGIN:        100
-      END:          1000
-      BY_EPOCH:     False
-
+    NAME: CosineAnnealingLR
+    T_MAX: 500
+    ETA_MIN: 1e-8
+    WARMUP_STEPS: 50
   #
   TRAIN_DATA:
     NAME: CSVInRAMDataset
@@ -199,9 +188,9 @@ SOLVER:
     # ---------------- checkpoints & metrics ----------------
     - {NAME: CheckpointHook,      INTERVAL: 100,  PRIORITY: 300,
       PUSH_TO_HUB: true,
-      HUB_MODEL_ID: "Benson/ace-model-0.6b-512",  # Change to your desired repo name
+      HUB_MODEL_ID: "benvisio/ace-model-0.6b-512",  # Change to your desired repo name
       HUB_PRIVATE: false,
-      HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
+      HUB_TOKEN: "${env:MODELSCOPE_TOKEN}"}
     - {NAME: WandbCheckpointHook, CHECKPOINT_INTERVAL: 100, SAVE_BEST: True,
       SAVE_BEST_BY: "+loss",     PRIORITY: 300}            # :contentReference[oaicite:0]{index=0}
 
