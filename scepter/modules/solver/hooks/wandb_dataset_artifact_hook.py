@@ -14,6 +14,8 @@ class WandbDatasetArtifactHook(Hook):
         self.train_csv = None
         self.val_csv = None
         self.extra_csvs = []
+        # Set priority from config or default to 99
+        self.priority = cfg.get('PRIORITY', 99)
 
     def before_solve(self, solver):
         # Extract dataset paths from solver's config at runtime
@@ -25,11 +27,19 @@ class WandbDatasetArtifactHook(Hook):
             artifact = wandb.Artifact('dataset_csvs', type='dataset')
             if self.train_csv and os.path.exists(self.train_csv):
                 artifact.add_file(self.train_csv)
+                self.logger.info(f"Adding CSV to artifact: {self.train_csv}")
             if self.val_csv and os.path.exists(self.val_csv):
                 artifact.add_file(self.val_csv)
+                self.logger.info(f"Adding CSV to artifact: {self.val_csv}")
             for csv_path in self.extra_csvs:
                 if os.path.exists(csv_path):
                     artifact.add_file(csv_path)
-            solver.wandb_run.log_artifact(artifact)
-            if self.logger:
-                self.logger.info(f"Logged dataset CSVs as wandb artifact: {[self.train_csv, self.val_csv] + self.extra_csvs}")
+                    self.logger.info(f"Adding extra CSV to artifact: {csv_path}")
+            
+            if artifact.files:
+                solver.wandb_run.log_artifact(artifact)
+                if self.logger:
+                    self.logger.info(f"Logged dataset CSVs as wandb artifact")
+            else:
+                if self.logger:
+                    self.logger.warning(f"No CSV files found to log as artifacts")
