@@ -146,6 +146,20 @@ SOLVER:
     SAMPLER:
       NAME: LoopSampler
   #
+  VAL_DATA:
+    NAME: ImageTextPairMSDatasetForACE
+    MODE: validation
+    MS_DATASET_NAME: cache/datasets/hed_pair
+    MS_DATASET_NAMESPACE: ""
+    MS_DATASET_SPLIT: "validation"
+    MS_DATASET_SUBNAME: ""
+    PROMPT_PREFIX: ""
+    REPLACE_STYLE: False
+    MAX_SEQ_LEN: 1024
+    PIN_MEMORY: True
+    BATCH_SIZE: 1
+    NUM_WORKERS: 1
+  #
   TRAIN_HOOKS:
     -
       NAME: BackwardHook
@@ -159,4 +173,16 @@ SOLVER:
     -
       NAME: ProbeDataHook
       PROB_INTERVAL: 100
-      
+    -
+      NAME: ValidationHook
+      PRIORITY: 200
+      EVAL_INTERVAL: 50
+    -
+      NAME: WandbLogHook
+      PRIORITY: 201
+      PROJECT_NAME: "scepter-project"
+      RUN_NAME: "ace_0.6b_512_validation"
+      TAGS: [ACE, 0.6B, validation]
+      SAVE_CODE: True
+      LOG_INTERVAL: 1
+      LOG_VALIDATION: True
