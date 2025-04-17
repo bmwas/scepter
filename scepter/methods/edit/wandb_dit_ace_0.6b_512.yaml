@@ -130,10 +130,24 @@ SOLVER:
     EPS: 1e-10
     WEIGHT_DECAY: 5e-4
   #
+  # ─── learning‑rate schedule (replace entire LR_SCHEDULER block) ───
   LR_SCHEDULER:
-    NAME: CosineAnnealingLR
-    T_MAX: 1000
-    ETA_MIN: 1e-8
+    # ①  linear warm‑up from 0.1 % → 100 % LR over 100 steps
+    - NAME: LinearLR          # warm‑up
+      START_FACTOR: 0.001     # 0.1 % of base LR at step 0
+      END_FACTOR:   1.0       # reach full LR at step 100
+      BEGIN:        0
+      END:          100       # = WARMUP_STEPS
+      BY_EPOCH:     False
+
+    # ②  smooth cosine decay for the remaining 900 steps
+    - NAME: CosineAnnealingLR
+      T_MAX:        900       # MAX_STEPS ‑ WARMUP_STEPS
+      ETA_MIN:      1e-7      # floor LR
+      BEGIN:        100
+      END:          1000
+      BY_EPOCH:     False
+
   #
   TRAIN_DATA:
     NAME: CSVInRAMDataset
