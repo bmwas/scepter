@@ -149,7 +149,7 @@ SOLVER:
     NAME: CSVInRAMDataset
     MODE: train
     CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/training.csv
-    IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair/images_therapist
+    IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
     BATCH_SIZE: 4
     NUM_WORKERS: 1
     SAMPLER:
@@ -161,7 +161,7 @@ SOLVER:
     NAME: CSVInRAMDataset
     MODE: validation
     CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/validation.csv
-    IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair/images_therapist
+    IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
     BATCH_SIZE: 1
     NUM_WORKERS: 1
     DROP_LAST: false
@@ -225,6 +225,6 @@ SOLVER:
         NAME: CSVInRAMDataset
         MODE: validation
         CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/validation.csv
-        IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair/images_therapist
+        IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
         BATCH_SIZE: 1
         NUM_WORKERS: 1
