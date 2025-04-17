@@ -188,3 +188,16 @@ SOLVER:
       VAL_INTERVAL: 1
       LOG_DETAILED_METRICS: True
       CREATE_EVALUATION_TABLE: True
+      VAL_DATA:
+        NAME: ImageTextPairMSDatasetForACE
+        MODE: validation
+        MS_DATASET_NAME: cache/datasets/hed_pair
+        MS_DATASET_NAMESPACE: ""
+        MS_DATASET_SPLIT: "validation"
+        MS_DATASET_SUBNAME: ""
+        PROMPT_PREFIX: ""
+        REPLACE_STYLE: False
+        MAX_SEQ_LEN: 1024
+        PIN_MEMORY: True
+        BATCH_SIZE: 1
+        NUM_WORKERS: 1
