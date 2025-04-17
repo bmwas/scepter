@@ -201,8 +201,10 @@ SOLVER:
       HUB_PRIVATE: false,
       HUB_TOKEN: "${env:MODELSCOPE_TOKEN}"}
     - {NAME: WandbCheckpointHook, CHECKPOINT_INTERVAL: 100, SAVE_BEST: True,
-      SAVE_BEST_BY: "+loss",     PRIORITY: 300}            # :contentReference[oaicite:0]{index=0}
-
+      SAVE_BEST_BY: "+loss", PRIORITY: 300,
+      ARTIFACT_MODEL_DIR: "models",
+      MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
+      STRUCTURED_ARTIFACTS: true}            # Enable structured artifacts with required subdirectories
     # ---------------- LR tracking ------------ 
     - {NAME: WandbLrHook,         LOG_LR_SCHEDULE: True, PRIORITY: 200}     # :contentReference[oaicite:1]{index=1}
     # Note: WandbValLossHook removed as it requires run_step_val method
@@ -214,6 +216,12 @@ SOLVER:
 
     # ---------------- file/artifact sweeper ---------------
     - {NAME: WandbFileTrackerHook, TRACK_INTERVAL: 30, PRIORITY: 1100}       # :contentReference[oaicite:4]{index=4}
+
+    # ---------------- structured model artifact saving ---------------
+    - {NAME: WandbStructuredArtifactHook, CHECKPOINT_INTERVAL: 100, PRIORITY: 1200,
+      ARTIFACT_MODEL_DIR: "models",
+      MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
+      SAVE_FINAL: true}
 
     # ParameterTrackerHook removed due to error: missing required 'param' argument
 
