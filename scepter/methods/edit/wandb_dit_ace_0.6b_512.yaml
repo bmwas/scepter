@@ -227,6 +227,4 @@ SOLVER:
 
     # ParameterTrackerHook removed due to error: missing required 'param' argument
 
-    # WandbValLossHook requires DATA or VAL_DATA which is missing
-    # - {NAME: WandbValLossHook, PRIORITY: 250}
-    # - {NAME: WandbValLossHook, PRIORITY: 250}
+    - {NAME: WandbValLossHook, PRIORITY: 250, VAL_INTERVAL: 2, LOG_DETAILED_METRICS: True, CREATE_EVALUATION_TABLE: True}

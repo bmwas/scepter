@@ -182,3 +182,9 @@ SOLVER:
       SAVE_CODE: True
       LOG_INTERVAL: 1
       LOG_VALIDATION: True
+    -
+      NAME: WandbValLossHook
+      PRIORITY: 210
+      VAL_INTERVAL: 1
+      LOG_DETAILED_METRICS: True
+      CREATE_EVALUATION_TABLE: True
