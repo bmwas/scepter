@@ -138,7 +138,7 @@ class CSVInRAMDataset(BaseDataset):
         
         # Return in the format expected by the ACE model
         # Add sample_id as the row index (auto-generated)
-        # Add dummy meta fields for compatibility with hooks
+        # Add dummy meta fields for compatibility with hooks (as strings, not lists)
         return {
             'src_image_list': [[source_img]],  # Double wrap for list of lists
             'src_mask_list': [[src_mask]],     # Double wrap for list of lists
@@ -149,8 +149,8 @@ class CSVInRAMDataset(BaseDataset):
             'negative_prompt': [[self.negative_prompt]],  # Negative/unconditional prompt, as list of lists
             'edit_id': [0],                  # Edit IDs
             'sample_id': [idx % self.real_number],         # Auto-generated sample_id
-            'edit_type': [""],              # Dummy meta field for compatibility
-            'data_type': [""]               # Dummy meta field for compatibility
+            'edit_type': "",                # Dummy meta field as string
+            'data_type': ""                 # Dummy meta field as string
         }
 
     @staticmethod
