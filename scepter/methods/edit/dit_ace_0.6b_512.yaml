@@ -169,7 +169,7 @@ SOLVER:
       LOG_INTERVAL: 1
     -
       NAME: CheckpointHook
-      INTERVAL: 100
+      INTERVAL: 30
     -
       NAME: ProbeDataHook
       PROB_INTERVAL: 1
@@ -185,7 +185,7 @@ SOLVER:
     -
       NAME: WandbValLossHook
       PRIORITY: 210
-      VAL_INTERVAL: 10
+      VAL_INTERVAL: 5
       LOG_DETAILED_METRICS: True
       CREATE_EVALUATION_TABLE: True
       VAL_DATA:
