@@ -41,6 +41,9 @@ SOLVER:
     USE_EMA: True
     EMA_DECAY: 0.9999
     EVAL_EMA: True
+    USE_SWA: True  # Enable Stochastic Weight Averaging for extreme stability
+    SWA_START: 100  # Start SWA after 100 steps
+    SWA_FREQ: 10    # Average weights every 10 steps
     TEXT_IDENTIFIER: [ '{image}', '{image1}', '{image2}', '{image3}', '{image4}', '{image5}', '{image6}', '{image7}', '{image8}', '{image9}' ]
     USE_TEXT_POS_EMBEDDINGS: True
     #
@@ -129,11 +132,12 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 5e-8
-    EPS: 1e-8
-    WEIGHT_DECAY: 1e-4
-    CLIP_GRAD_NORM: 0.5
+    LEARNING_RATE: 1e-8
+    EPS: 1e-6
+    WEIGHT_DECAY: 1e-5
+    CLIP_GRAD_NORM: 0.1
     BETAS: [0.9, 0.999]
+    GRAD_ACCUMULATION: 4
   #
   LR_SCHEDULER:
     NAME: CosineAnnealingLR
@@ -154,7 +158,9 @@ SOLVER:
     NEGATIVE_PROMPT: ""
     SAMPLER:
       NAME: LoopSampler
+      SHUFFLE: true  # Ensure random batch order to avoid sequence-related spikes
     COLLATE_FN: CSVInRAMDataset.collate_fn
+    DROP_LAST: true  # Drop incomplete batches which can cause instability
   #
   VAL_DATA:
     NAME: CSVInRAMDataset
