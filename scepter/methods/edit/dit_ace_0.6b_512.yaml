@@ -166,17 +166,17 @@ SOLVER:
       PRIORITY: 0
     -
       NAME: LogHook
-      LOG_INTERVAL: 50
+      LOG_INTERVAL: 1
     -
       NAME: CheckpointHook
-      INTERVAL: 100
+      INTERVAL: 1
     -
       NAME: ProbeDataHook
-      PROB_INTERVAL: 100
+      PROB_INTERVAL: 1
     -
       NAME: ValidationHook
       PRIORITY: 200
-      EVAL_INTERVAL: 50
+      EVAL_INTERVAL: 1
     -
       NAME: WandbLogHook
       PRIORITY: 201
