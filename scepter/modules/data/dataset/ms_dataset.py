@@ -516,7 +516,8 @@ class ImageTextPairMSDatasetForACE(BaseDataset):
             'prompt': [prompt],
             'edit_id': [0],
             'sample_id': index,  # Ensure each sample has a unique sample_id
-            'edit_type': ''  # Provide default empty string for edit_type
+            'edit_type': '',  # Provide default empty string for edit_type
+            'data_type': ''  # Provide default empty string for data_type
         }
 
     def load_image(self, prefix, img_path, cvt_type=None):
