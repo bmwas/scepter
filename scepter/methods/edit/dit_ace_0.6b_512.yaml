@@ -199,5 +199,5 @@ SOLVER:
         REPLACE_STYLE: False
         MAX_SEQ_LEN: 1024
         PIN_MEMORY: True
-        BATCH_SIZE: 4
+        BATCH_SIZE: 1
         NUM_WORKERS: 1
