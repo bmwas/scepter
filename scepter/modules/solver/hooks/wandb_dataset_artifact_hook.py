@@ -1,7 +1,9 @@
 import os
 import wandb
 from scepter.modules.solver.hooks.base_hook import Hook
+from scepter.modules.solver.hooks.registry import HOOKS
 
+@HOOKS.register_class()
 class WandbDatasetArtifactHook(Hook):
     """
     Hook to log all dataset CSVs (TRAIN_DATA and VAL_DATA) as wandb artifacts.
