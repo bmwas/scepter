@@ -152,6 +152,10 @@ SOLVER:
     IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair/images_therapist
     BATCH_SIZE: 4
     NUM_WORKERS: 1
+    SAMPLER:
+      NAME: LoopSampler
+      SHUFFLE: true
+    DROP_LAST: false
   #
   VAL_DATA:
     NAME: CSVInRAMDataset
@@ -160,6 +164,7 @@ SOLVER:
     IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair/images_therapist
     BATCH_SIZE: 1
     NUM_WORKERS: 1
+    DROP_LAST: false
   #
   TRAIN_HOOKS:
     # ---------------- core training ----------------
