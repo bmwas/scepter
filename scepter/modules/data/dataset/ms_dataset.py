@@ -514,7 +514,8 @@ class ImageTextPairMSDatasetForACE(BaseDataset):
             'image': tar_image,
             'image_mask': tar_mask,
             'prompt': [prompt],
-            'edit_id': [0]
+            'edit_id': [0],
+            'sample_id': index  # Ensure each sample has a unique sample_id
         }
 
     def load_image(self, prefix, img_path, cvt_type=None):
