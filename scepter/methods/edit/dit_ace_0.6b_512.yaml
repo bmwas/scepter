@@ -141,7 +141,7 @@ SOLVER:
     REPLACE_STYLE: False
     MAX_SEQ_LEN: 1024
     PIN_MEMORY: True
-    BATCH_SIZE: 1
+    BATCH_SIZE: 4
     NUM_WORKERS: 1
     SAMPLER:
       NAME: LoopSampler
@@ -157,7 +157,7 @@ SOLVER:
     REPLACE_STYLE: False
     MAX_SEQ_LEN: 1024
     PIN_MEMORY: True
-    BATCH_SIZE: 1
+    BATCH_SIZE: 4
     NUM_WORKERS: 1
   #
   TRAIN_HOOKS:
@@ -169,7 +169,7 @@ SOLVER:
       LOG_INTERVAL: 1
     -
       NAME: CheckpointHook
-      INTERVAL: 1
+      INTERVAL: 100
     -
       NAME: ProbeDataHook
       PROB_INTERVAL: 1
@@ -185,7 +185,7 @@ SOLVER:
     -
       NAME: WandbValLossHook
       PRIORITY: 210
-      VAL_INTERVAL: 1
+      VAL_INTERVAL: 10
       LOG_DETAILED_METRICS: True
       CREATE_EVALUATION_TABLE: True
       VAL_DATA:
@@ -199,5 +199,5 @@ SOLVER:
         REPLACE_STYLE: False
         MAX_SEQ_LEN: 1024
         PIN_MEMORY: True
-        BATCH_SIZE: 1
+        BATCH_SIZE: 4
         NUM_WORKERS: 1
