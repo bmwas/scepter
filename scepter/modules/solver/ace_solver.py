@@ -125,9 +125,11 @@ class ACESolver(LatentDiffusionSolver):
     def run_step_val(self, batch_data, noise_generator=None):
         loss_dict = {}
         batch_data = transfer_data_to_cuda(batch_data)
-        # Remove extra meta fields before passing to model
-        meta_fields = ['sample_id', 'edit_type', 'data_type']
-        batch_data_for_model = {k: v for k, v in batch_data.items() if k not in meta_fields}
+        # Remove all meta fields and fields that may be passed explicitly to diffusion.loss
+        exclude_fields = [
+            'sample_id', 'edit_type', 'data_type', 't', 'x_0', 'model', 'model_kwargs', 'reduction', 'noise'
+        ]
+        batch_data_for_model = {k: v for k, v in batch_data.items() if k not in exclude_fields}
         with torch.autocast(device_type='cuda', enabled=self.use_amp, dtype=self.dtype):
             if hasattr(self.model, 'module'):
                 results = self.model.module.forward_train(**batch_data_for_model)
