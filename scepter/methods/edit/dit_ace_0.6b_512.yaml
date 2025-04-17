@@ -147,56 +147,16 @@ SOLVER:
       NAME: LoopSampler
   #
   TRAIN_HOOKS:
-    # ---------------- core training ----------------
-    - {NAME: BackwardHook,   PRIORITY: 0}
-    - {NAME: LogHook,        LOG_INTERVAL: 50, PRIORITY: 100}
-
-    # ---------------- wandb initialiser ----------------
-    - {NAME: WandbLogHook,   PRIORITY: 100,                # must come before every other wandb‑hook
-      PROJECT_NAME: "scepter-project",                     # Match the default project name in BaseSolver
-      RUN_NAME: "ace_0.6b_512_final",
-      TAGS: [ACE, 0.6B],
-      SAVE_CODE: True}
-
-    # ---------------- wandb loss tracking ----------------
-    - {NAME: WandbLogHook,   PRIORITY: 101,                # must come before every other wandb‑hook
-      PROJECT_NAME: "scepter-project",                     # Match the default project name in BaseSolver
-      RUN_NAME: "ace_0.6b_512_final",
-      TAGS: [ACE, 0.6B],
-      SAVE_CODE: True,
-      LOG_INTERVAL: 1}
-    # ---------------- checkpoints & metrics ----------------
-    - {NAME: CheckpointHook,      INTERVAL: 100,  PRIORITY: 300,
-      PUSH_TO_HUB: true,
-      HUB_MODEL_ID: "benvisio/ace-model-0.6b-512",  # Change to your desired repo name
-      HUB_PRIVATE: false,
-      HUB_TOKEN: "${env:MODELSCOPE_TOKEN}"}
-    - {NAME: WandbCheckpointHook, CHECKPOINT_INTERVAL: 100, SAVE_BEST: True,
-      SAVE_BEST_BY: "+loss", PRIORITY: 300,
-      ARTIFACT_MODEL_DIR: "models",
-      MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
-      STRUCTURED_ARTIFACTS: true}            # Enable structured artifacts with required subdirectories
-    # ---------------- LR tracking ------------ 
-    - {NAME: WandbLrHook,         LOG_LR_SCHEDULE: True, PRIORITY: 200}     # :contentReference[oaicite:1]{index=1}
-    # Note: WandbValLossHook removed as it requires run_step_val method
-
-    # ---------------- images / probe data -----------------
-    - {NAME: ProbeDataHook,       PROB_INTERVAL: 100}                        # keeps local saves
-    - {NAME: WandbProbeDataHook,  PROB_INTERVAL: 100, LOG_IMAGES: True,
-      LOG_VIDEOS: True, PRIORITY: 1000}                                     # :contentReference[oaicite:3]{index=3}
-
-    # ---------------- file/artifact sweeper ---------------
-    - {NAME: WandbFileTrackerHook, TRACK_INTERVAL: 30, PRIORITY: 1100}       # :contentReference[oaicite:4]{index=4}
-
-    # ---------------- structured model artifact saving ---------------
-    - {NAME: WandbStructuredArtifactHook, CHECKPOINT_INTERVAL: 100, PRIORITY: 1200,
-      ARTIFACT_MODEL_DIR: "models",
-      MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
-      SAVE_FINAL: true}
-
-    # ParameterTrackerHook removed due to error: missing required 'param' argument
-
-    # WandbValLossHook requires DATA or VAL_DATA which is missing
-    # - {NAME: WandbValLossHook, PRIORITY: 250}
-    # - {NAME: WandbValLossHook, PRIORITY: 250}
-
+    -
+      NAME: BackwardHook
+      PRIORITY: 0
+    -
+      NAME: LogHook
+      LOG_INTERVAL: 50
+    -
+      NAME: CheckpointHook
+      INTERVAL: 100
+    -
+      NAME: ProbeDataHook
+      PROB_INTERVAL: 100
+      
