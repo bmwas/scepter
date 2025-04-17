@@ -122,6 +122,19 @@ class ACESolver(LatentDiffusionSolver):
 
         self.after_all_iter(self.hooks_dict[self._mode])
 
+    def run_step_val(self, batch_data, noise_generator=None):
+        loss_dict = {}
+        batch_data = transfer_data_to_cuda(batch_data)
+        with torch.autocast(device_type='cuda', enabled=self.use_amp, dtype=self.dtype):
+            if hasattr(self.model, 'module'):
+                results = self.model.module.forward_train(**batch_data)
+            else:
+                results = self.model.forward_train(**batch_data)
+            loss = results['loss']
+            for sample_id in batch_data['sample_id']:
+                loss_dict[sample_id] = loss.detach().cpu().numpy()
+        return loss_dict
+
     @property
     def probe_data(self):
         if not we.debug and self.mode == 'train':
