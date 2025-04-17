@@ -3,11 +3,13 @@ from scepter.modules.solver.hooks.hook import Hook
 import os
 import wandb
 import logging
+import shutil
 
 @HOOKS.register_class()
 class WandbDatasetArtifactHook(Hook):
     """
     Hook to log all dataset CSVs (TRAIN_DATA and VAL_DATA) as wandb artifacts.
+    Also saves the CSV files directly to wandb Files section.
     """
     def __init__(self, cfg, logger=None):
         super().__init__(cfg, logger=logger)
@@ -49,30 +51,49 @@ class WandbDatasetArtifactHook(Hook):
             artifact = wandb.Artifact('dataset_csvs', type='dataset')
             files_added = 0
             
+            # Create a "datasets" directory within wandb's run directory for tracking files
+            datasets_dir = os.path.join(wandb.run.dir, "datasets")
+            os.makedirs(datasets_dir, exist_ok=True)
+            
             if self.train_csv and os.path.exists(self.train_csv):
+                # Add to artifact
                 artifact.add_file(self.train_csv)
-                self.logger.info(f"Adding CSV to artifact: {self.train_csv}")
+                # Also save to wandb Files
+                train_csv_dest = os.path.join(datasets_dir, "training.csv")
+                shutil.copy(self.train_csv, train_csv_dest)
+                wandb.save(train_csv_dest)
+                self.logger.info(f"Adding CSV to artifact and files: {self.train_csv}")
                 files_added += 1
             elif self.train_csv:
                 self.logger.warning(f"Training CSV file not found: {self.train_csv}")
                 
             if self.val_csv and os.path.exists(self.val_csv):
+                # Add to artifact
                 artifact.add_file(self.val_csv)
-                self.logger.info(f"Adding CSV to artifact: {self.val_csv}")
+                # Also save to wandb Files
+                val_csv_dest = os.path.join(datasets_dir, "validation.csv")
+                shutil.copy(self.val_csv, val_csv_dest)
+                wandb.save(val_csv_dest)
+                self.logger.info(f"Adding CSV to artifact and files: {self.val_csv}")
                 files_added += 1
             elif self.val_csv:
                 self.logger.warning(f"Validation CSV file not found: {self.val_csv}")
                 
-            for csv_path in self.extra_csvs:
+            for i, csv_path in enumerate(self.extra_csvs):
                 if os.path.exists(csv_path):
+                    # Add to artifact
                     artifact.add_file(csv_path)
-                    self.logger.info(f"Adding extra CSV to artifact: {csv_path}")
+                    # Also save to wandb Files
+                    extra_csv_dest = os.path.join(datasets_dir, f"extra_{i}.csv")
+                    shutil.copy(csv_path, extra_csv_dest)
+                    wandb.save(extra_csv_dest)
+                    self.logger.info(f"Adding extra CSV to artifact and files: {csv_path}")
                     files_added += 1
                 else:
                     self.logger.warning(f"Extra CSV file not found: {csv_path}")
             
             if files_added > 0:
                 solver.wandb_run.log_artifact(artifact)
-                self.logger.info(f"Successfully logged {files_added} CSV files as wandb artifact")
+                self.logger.info(f"Successfully logged {files_added} CSV files as wandb artifact and in Files section")
             else:
-                self.logger.warning(f"No CSV files found to log as artifacts")
+                self.logger.warning(f"No CSV files found to log as artifacts or files")
