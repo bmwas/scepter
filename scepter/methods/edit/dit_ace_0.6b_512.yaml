@@ -174,10 +174,6 @@ SOLVER:
       NAME: ProbeDataHook
       PROB_INTERVAL: 1
     -
-      NAME: ValidationHook
-      PRIORITY: 200
-      EVAL_INTERVAL: 1
-    -
       NAME: WandbLogHook
       PRIORITY: 201
       PROJECT_NAME: "scepter-project"
