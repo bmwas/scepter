@@ -227,4 +227,21 @@ SOLVER:
 
     # ParameterTrackerHook removed due to error: missing required 'param' argument
 
-    - {NAME: WandbValLossHook, PRIORITY: 250, VAL_INTERVAL: 2, LOG_DETAILED_METRICS: True, CREATE_EVALUATION_TABLE: True}
+    - NAME: WandbValLossHook
+      PRIORITY: 210
+      VAL_INTERVAL: 5
+      LOG_DETAILED_METRICS: True
+      CREATE_EVALUATION_TABLE: True
+      VAL_DATA:
+        NAME: ImageTextPairMSDatasetForACE
+        MODE: validation
+        MS_DATASET_NAME: cache/datasets/therapy_pair
+        MS_DATASET_NAMESPACE: ""
+        MS_DATASET_SPLIT: "validation"
+        MS_DATASET_SUBNAME: ""
+        PROMPT_PREFIX: ""
+        REPLACE_STYLE: False
+        MAX_SEQ_LEN: 1024
+        PIN_MEMORY: True
+        BATCH_SIZE: 1
+        NUM_WORKERS: 1
