@@ -47,7 +47,7 @@ SOLVER:
     DIFFUSION:
       NAME: BaseDiffusion
       PREDICTION_TYPE: eps
-      MIN_SNR_GAMMA:
+      MIN_SNR_GAMMA: 5.0  # Add SNR clamping for better stability
       NOISE_SCHEDULER:
         NAME: LinearScheduler
         NUM_TIMESTEPS: 1000
@@ -118,6 +118,8 @@ SOLVER:
     LOSS:
       NAME: ReconstructLoss
       LOSS_TYPE: l2
+      LOSS_WEIGHT: 1.0
+      LOSS_CLIP: 10.0
   #
   SAMPLE_ARGS:
     SAMPLER: ddim
@@ -127,16 +129,17 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 1e-7
-    EPS: 1e-10
-    WEIGHT_DECAY: 5e-4
-    CLIP_GRAD_NORM: 1.0
+    LEARNING_RATE: 5e-8
+    EPS: 1e-8
+    WEIGHT_DECAY: 1e-4
+    CLIP_GRAD_NORM: 0.5
+    BETAS: [0.9, 0.999]
   #
   LR_SCHEDULER:
     NAME: CosineAnnealingLR
     T_MAX: 500
-    ETA_MIN: 1e-8
-    WARMUP_STEPS: 50
+    ETA_MIN: 0
+    WARMUP_STEPS: 100
   #
   TRAIN_DATA:
     NAME: CSVInRAMDataset
@@ -145,7 +148,7 @@ SOLVER:
     PROMPT_PREFIX: ""
     MAX_SEQ_LEN: 1024
     PIN_MEMORY: True
-    BATCH_SIZE: 1
+    BATCH_SIZE: 4
     NUM_WORKERS: 1
     IMAGE_ROOT_DIR: "./cache/datasets/therapy_pair/"
     NEGATIVE_PROMPT: ""
@@ -160,7 +163,7 @@ SOLVER:
     PROMPT_PREFIX: ""
     MAX_SEQ_LEN: 1024
     PIN_MEMORY: True
-    BATCH_SIZE: 1
+    BATCH_SIZE: 4
     NUM_WORKERS: 1
     IMAGE_ROOT_DIR: "./cache/datasets/therapy_pair/"
     NEGATIVE_PROMPT: ""
