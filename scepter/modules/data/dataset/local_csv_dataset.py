@@ -137,6 +137,7 @@ class CSVInRAMDataset(BaseDataset):
                 prompt = '{image}, ' + prompt
         
         # Return in the format expected by the ACE model
+        # Add sample_id as the row index (auto-generated)
         return {
             'src_image_list': [[source_img]],  # Double wrap for list of lists
             'src_mask_list': [[src_mask]],     # Double wrap for list of lists
@@ -145,7 +146,8 @@ class CSVInRAMDataset(BaseDataset):
             'prompt': [[prompt]],            # List of list of prompts
             'src_prompt': [[prompt]],        # Source prompt (same as prompt for csv loader)
             'negative_prompt': [[self.negative_prompt]],  # Negative/unconditional prompt, as list of lists
-            'edit_id': [0]                   # Edit IDs
+            'edit_id': [0],                  # Edit IDs
+            'sample_id': [idx % self.real_number]         # Auto-generated sample_id
         }
 
     @staticmethod
@@ -156,7 +158,7 @@ class CSVInRAMDataset(BaseDataset):
         """
         batch_dict = {}
         for k in batch[0].keys():
-            if k in ['edit_id']:
+            if k in ['edit_id', 'sample_id']:
                 # For simple list fields, concatenate them
                 batch_dict[k] = sum([item[k] for item in batch], [])
             elif k in ['src_image_list', 'src_mask_list']:
