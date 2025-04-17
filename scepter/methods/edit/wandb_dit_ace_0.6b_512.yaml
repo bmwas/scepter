@@ -228,3 +228,5 @@ SOLVER:
         IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
         BATCH_SIZE: 1
         NUM_WORKERS: 1
+
+    - {NAME: WandbDatasetArtifactHook, PRIORITY: 99}
