@@ -58,10 +58,16 @@ def plot_multi_curves(x,
     if y_label is not None:
         plt.ylabel(y_label)
 
-    x_step = (x_max - x_min) / 5
-    y_step = (max_num - min_num) / 5
-    plt.xticks(np.arange(x_min - x_step / 2, x_max + x_step / 2, x_step))
-    plt.yticks(np.arange(min_num - y_step / 2, max_num + y_step / 2, y_step))
+    x_range = x_max - x_min
+    if x_range == 0:
+        x_step = 1
+    else:
+        x_step = x_range / 5
+    if x_step > 0:
+        plt.xticks(np.arange(x_min - x_step / 2, x_max + x_step / 2, x_step))
+    y_step = (max_num - min_num) / 5 if max_num != min_num else 1
+    if y_step > 0:
+        plt.yticks(np.arange(min_num - y_step / 2, max_num + y_step / 2, y_step))
     plt.grid()
     if save_path is not None:
         plt.savefig(save_path)
