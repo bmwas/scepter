@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) Alibaba, Inc. and its affiliates.
 import warnings
+import os
 
 import numpy as np
 
@@ -107,3 +108,27 @@ def plt_curve(x,
                              save_path=save_path,
                              x_label=x_label,
                              y_label=y_label)
+
+
+def plot_results(plot_data, save_folder):
+    # Only plot the 'all' curve for clarity
+    if 'all' in plot_data:
+        label = 'all'
+        curve_data = [[step, value] for step, value in plot_data['all'].items()]
+        curve_data.sort(key=lambda x: x[0])
+        steps = [step for step, value in curve_data]
+        value = [value for step, value in curve_data]
+        k_y = [{'data': np.array(value), 'label': label}]
+        save_path = os.path.join(save_folder, f"{label}.png")
+        with open(save_path, 'w') as local_file:
+            plot_multi_curves(x=np.array(steps),
+                              y=k_y,
+                              x_label='steps',
+                              y_label='validation loss',
+                              title=f"{label} validation loss",
+                              save_path=local_file)
+    # Optionally, for meta curves, plot only if there is more than one unique value
+    # (not implemented here for clarity)
+    if len(steps) > 0:
+        return True
+    return False

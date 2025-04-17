@@ -145,6 +145,24 @@ class WandbValLossHook(ValLossHook):
                         row_data.append(compute_results.get('all', 0))
                         self.eval_table.add_data(*row_data)
             
+            # --- Log the best validation result to wandb ---
+            # Find the minimum 'all' value and its step from results['summary']['all']
+            save_folder = os.path.join(solver.work_dir, self.save_folder)
+            summary_path = os.path.join(save_folder, 'curve', 'all.png')
+            if FS.exists(summary_path):
+                try:
+                    with FS.get_from(summary_path, wait_finish=True) as local_path:
+                        log_dict = {"val_loss/best_curve": wandb.Image(local_path)}
+                        self.wandb_run.log(log_dict, step=step)
+                except Exception as e:
+                    solver.logger.warning(f"Error logging best validation curve: {e}")
+            # Log best scalar value
+            if 'all' in compute_results:
+                best_val_loss = min(self.results['summary']['all'].values())
+                best_step = min(self.results['summary']['all'], key=self.results['summary']['all'].get)
+                self.wandb_run.summary['best_val_loss'] = best_val_loss
+                self.wandb_run.summary['best_val_loss_step'] = best_step
+            
             # Save a copy of the history.json file as a wandb artifact
             save_folder = os.path.join(solver.work_dir, self.save_folder)
             save_history = os.path.join(save_folder, 'history.json')
