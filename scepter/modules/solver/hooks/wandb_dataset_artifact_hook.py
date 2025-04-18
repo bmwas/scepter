@@ -67,8 +67,9 @@ class WandbDatasetArtifactHook(Hook):
                     self.logger.info(f"Set up wandb to track all files in WORK_DIR: {self.work_dir}")
                 except Exception as e:
                     self.logger.warning(f"Could not track WORK_DIR files with wandb.save: {e}")
+                # after_solve is automatically handled by hook framework
                 # Create a hook for after_solve to capture final files
-                solver.register_hook("after_solve", self.after_solve)
+                # solver.register_hook("after_solve", self.after_solve)
             
     def after_solve(self, solver):
         """Log all files in WORK_DIR after training is complete"""
