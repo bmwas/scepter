@@ -336,9 +336,25 @@ class CheckpointHook(Hook):
             if self.push_to_hub and self.last_ckpt:
                 # Use huggingface_hub for pushing to HF
                 try:
-                    from huggingface_hub import push_to_hub as hf_push_to_hub
+                    import sys
+                    import subprocess
+                    
+                    # Debug information to help diagnose import issues
+                    solver.logger.info(f"Python path: {sys.path}")
+                    try:
+                        # Try to determine where huggingface_hub is installed
+                        result = subprocess.run(
+                            ["python3.10", "-c", "import huggingface_hub; print(huggingface_hub.__file__)"],
+                            capture_output=True, text=True, check=True
+                        )
+                        solver.logger.info(f"huggingface_hub located at: {result.stdout.strip()}")
+                    except subprocess.CalledProcessError as e:
+                        solver.logger.error(f"Could not locate huggingface_hub: {e.stderr}")
+                    
+                    # Try direct import
+                    solver.logger.info("Attempting to import huggingface_hub...")
+                    import huggingface_hub
                     from huggingface_hub import HfApi
-                    import os
                     
                     with FS.get_dir_to_local_dir(self.last_ckpt) as local_dir:
                         # Get token from environment variable
@@ -360,8 +376,9 @@ class CheckpointHook(Hook):
                             repo_type="model"
                         )
                         solver.logger.info(f"Successfully pushed model to Hugging Face Hub: {self.hub_model_id}")
-                except ImportError:
-                    solver.logger.error("huggingface_hub package not found. Please install with: pip install huggingface_hub")
+                except ImportError as e:
+                    solver.logger.error(f"huggingface_hub import error: {e}")
+                    solver.logger.error("Please make sure huggingface_hub is properly installed in the current Python environment")
                 except Exception as e:
                     solver.logger.error(f"Error pushing to Hugging Face Hub: {e}")
 
