@@ -62,9 +62,11 @@ class WandbDatasetArtifactHook(Hook):
             # Step 2: Set up WORK_DIR tracking (for when files are created later)
             if self.work_dir and os.path.exists(self.work_dir):
                 # Make wandb track everything in WORK_DIR
-                wandb.save(os.path.join(self.work_dir, "*"), base_path=self.work_dir)
-                self.logger.info(f"Set up wandb to track all files in WORK_DIR: {self.work_dir}")
-                
+                try:
+                    wandb.save(os.path.join(self.work_dir, "*"), base_path=self.work_dir)
+                    self.logger.info(f"Set up wandb to track all files in WORK_DIR: {self.work_dir}")
+                except Exception as e:
+                    self.logger.warning(f"Could not track WORK_DIR files with wandb.save: {e}")
                 # Create a hook for after_solve to capture final files
                 solver.register_hook("after_solve", self.after_solve)
             
