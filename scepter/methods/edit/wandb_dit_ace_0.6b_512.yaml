@@ -132,18 +132,19 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 1e-8
+    LEARNING_RATE: 1e-5  # Increased from 1e-8
     EPS: 1e-6
     WEIGHT_DECAY: 1e-5
-    CLIP_GRAD_NORM: 0.1
+    CLIP_GRAD_NORM: 1.0 # increased from 0.1
     BETAS: [0.9, 0.999]
     GRAD_ACCUMULATION: 4
-  #
+
   LR_SCHEDULER:
     NAME: CosineAnnealingLR
-    T_MAX: 500
-    ETA_MIN: 0
-    WARMUP_STEPS: 100
+    T_MAX: 1000  # Adjust to match MAX_STEPS
+    ETA_MIN: 1e-7  # Small non-zero minimum LR for stability
+    WARMUP_STEPS: 200  # Increased warm-up for smoother convergence
+
   #
   TRAIN_DATA:
     NAME: CSVInRAMDataset
