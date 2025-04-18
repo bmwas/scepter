@@ -207,15 +207,11 @@ class WandbValLossHook(ValLossHook):
                     curve_images = {}
                     try:
                         # List all PNG files in the detail folder
-                        files = FS.list_directory(detail_folder)
-                        for file_info in files:
-                            if file_info['relative_path'].endswith('.png'):
-                                file_path = os.path.join(detail_folder, file_info['relative_path'])
-                                with FS.get_from(file_path, wait_finish=True) as local_path:
-                                    # Extract curve name from filename
-                                    curve_name = os.path.splitext(os.path.basename(file_path))[0]
-                                    curve_images[f"val_loss/detail/{curve_name}"] = wandb.Image(local_path)
-                        
+                        for filename in os.listdir(detail_folder):
+                            if filename.endswith('.png'):
+                                file_path = os.path.join(detail_folder, filename)
+                                curve_name = os.path.splitext(filename)[0]
+                                curve_images[f"val_loss/detail/{curve_name}"] = wandb.Image(file_path)
                         if curve_images:
                             self.wandb_run.log(curve_images, step=step)
                     except Exception as e:
