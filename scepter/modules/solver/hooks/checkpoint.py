@@ -356,13 +356,22 @@ class CheckpointHook(Hook):
                     import huggingface_hub
                     from huggingface_hub import HfApi
                     
+                    print("\n" + "="*80)
+                    print(" ATTEMPTING TO PUSH MODEL TO HUGGING FACE HUB")
+                    print("="*80 + "\n")
+                    
                     with FS.get_dir_to_local_dir(self.last_ckpt) as local_dir:
                         # Get token from environment variable
                         token = os.environ.get("HUGGINGFACE_TOKEN", None)
                         if token is None:
+                            print("\n" + "="*80)
+                            print(" ERROR: HUGGINGFACE_TOKEN ENVIRONMENT VARIABLE NOT SET")
+                            print("="*80 + "\n")
                             solver.logger.error("HUGGINGFACE_TOKEN environment variable not set. Cannot push to Hugging Face Hub.")
                             return
                         
+                        print(f"\n Preparing to upload model to: {self.hub_model_id}")
+                        print(f" Local directory being uploaded: {local_dir}")
                         solver.logger.info(f"Pushing model to Hugging Face Hub: {self.hub_model_id}")
                         api = HfApi(token=token)
                         api.create_repo(
@@ -370,16 +379,27 @@ class CheckpointHook(Hook):
                             private=self.hub_private,
                             exist_ok=True
                         )
+                        print(f" Starting upload to Hugging Face... (this may take a while)")
                         api.upload_folder(
                             folder_path=local_dir,
                             repo_id=self.hub_model_id,
                             repo_type="model"
                         )
+                        print("\n" + "="*80)
+                        print(f" SUCCESS! MODEL UPLOADED TO HUGGING FACE HUB: {self.hub_model_id}")
+                        print(f" View your model at: https://huggingface.co/{self.hub_model_id}")
+                        print("="*80 + "\n")
                         solver.logger.info(f"Successfully pushed model to Hugging Face Hub: {self.hub_model_id}")
                 except ImportError as e:
+                    print("\n" + "="*80)
+                    print(f" ERROR IMPORTING HUGGINGFACE_HUB: {e}")
+                    print("="*80 + "\n")
                     solver.logger.error(f"huggingface_hub import error: {e}")
                     solver.logger.error("Please make sure huggingface_hub is properly installed in the current Python environment")
                 except Exception as e:
+                    print("\n" + "="*80)
+                    print(f" ERROR PUSHING TO HUGGING FACE HUB: {e}")
+                    print("="*80 + "\n")
                     solver.logger.error(f"Error pushing to Hugging Face Hub: {e}")
 
     @staticmethod
