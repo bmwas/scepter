@@ -30,16 +30,13 @@ class WandbDatasetArtifactHook(Hook):
         # Store WORK_DIR for tracking
         self.work_dir = getattr(cfg, 'WORK_DIR', None)
         
-        # Get CSV paths with proper dictionary access to handle nested config
-        if hasattr(cfg, 'TRAIN_DATA') and isinstance(cfg.TRAIN_DATA, dict):
-            self.train_csv = cfg.TRAIN_DATA.get('CSV_PATH', None)
-        else:
-            self.logger.warning("TRAIN_DATA not found in config or not a dict")
-            
-        if hasattr(cfg, 'VAL_DATA') and isinstance(cfg.VAL_DATA, dict):
-            self.val_csv = cfg.VAL_DATA.get('CSV_PATH', None)
-        else:
-            self.logger.warning("VAL_DATA not found in config or not a dict")
+        # Hardcode the CSV paths based on the specified yaml file
+        # This ensures we always log these important files regardless of dataset type
+        self.train_csv = "./cache/datasets/therapy_pair/images_therapist/training.csv"
+        self.val_csv = "./cache/datasets/therapy_pair/images_therapist/validation.csv"
+        
+        # Log what we're setting
+        self.logger.info(f"Setting CSV paths for logging: TRAIN={self.train_csv}, VAL={self.val_csv}")
             
         # Also check WandbValLossHook VAL_DATA for additional CSV paths
         for hook_cfg in getattr(cfg, 'TRAIN_HOOKS', []):
