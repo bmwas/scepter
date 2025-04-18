@@ -78,6 +78,40 @@ class WandbDatasetArtifactHook(Hook):
                 artifact.add_dir(self.work_dir)
                 wandb_run.log_artifact(artifact)
                 self.logger.info(f"Logged all files in WORK_DIR as an artifact: {self.work_dir}")
+                
+            # Log which model parameters have gradients (called only at the end of training)
+            if hasattr(solver, 'model') and solver.model is not None:
+                try:
+                    # Count trainable vs frozen parameters
+                    total_params = 0
+                    trainable_params = 0
+                    trainable_components = {}
+                    
+                    # Group parameters by component
+                    for name, param in solver.model.named_parameters():
+                        total_params += param.numel()
+                        if param.requires_grad:
+                            trainable_params += param.numel()
+                            # Extract component name (first part before dot)
+                            component = name.split('.')[0]
+                            if component not in trainable_components:
+                                trainable_components[component] = 0
+                            trainable_components[component] += param.numel()
+                    
+                    # Log summary table of trainable components
+                    table = wandb.Table(columns=["Component", "Trainable Parameters", "Percentage"])
+                    for component, num_params in trainable_components.items():
+                        percentage = 100.0 * num_params / trainable_params
+                        table.add_data(component, num_params, f"{percentage:.2f}%")
+                    
+                    # Add total row
+                    table.add_data("TOTAL", trainable_params, f"{100.0 * trainable_params / total_params:.2f}% of all parameters")
+                    
+                    # Log to wandb
+                    wandb_run.log({"trainable_parameters": table})
+                    self.logger.info(f"Logged trainable parameter summary: {trainable_params:,} of {total_params:,} parameters are trainable ({100.0 * trainable_params / total_params:.2f}%)")
+                except Exception as e:
+                    self.logger.warning(f"Error logging parameter gradient info: {e}")
             
     def _log_csvs_to_wandb(self, wandb_run):
         """Log CSVs both as artifacts and as wandb Files under /table"""
