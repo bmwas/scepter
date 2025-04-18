@@ -332,13 +332,38 @@ class CheckpointHook(Hook):
             del checkpoint
 
     def after_all_iter(self, solver):
-        from swift import push_to_hub
         if we.rank == 0:
             if self.push_to_hub and self.last_ckpt:
-                with FS.get_dir_to_local_dir(self.last_ckpt) as local_dir:
-                    push_to_hub(repo_name=self.hub_model_id,
-                                output_dir=local_dir,
-                                private=self.hub_private)
+                # Use huggingface_hub for pushing to HF
+                try:
+                    from huggingface_hub import push_to_hub as hf_push_to_hub
+                    from huggingface_hub import HfApi
+                    import os
+                    
+                    with FS.get_dir_to_local_dir(self.last_ckpt) as local_dir:
+                        # Get token from environment variable
+                        token = os.environ.get("HUGGINGFACE_TOKEN", None)
+                        if token is None:
+                            solver.logger.error("HUGGINGFACE_TOKEN environment variable not set. Cannot push to Hugging Face Hub.")
+                            return
+                        
+                        solver.logger.info(f"Pushing model to Hugging Face Hub: {self.hub_model_id}")
+                        api = HfApi(token=token)
+                        api.create_repo(
+                            repo_id=self.hub_model_id,
+                            private=self.hub_private,
+                            exist_ok=True
+                        )
+                        api.upload_folder(
+                            folder_path=local_dir,
+                            repo_id=self.hub_model_id,
+                            repo_type="model"
+                        )
+                        solver.logger.info(f"Successfully pushed model to Hugging Face Hub: {self.hub_model_id}")
+                except ImportError:
+                    solver.logger.error("huggingface_hub package not found. Please install with: pip install huggingface_hub")
+                except Exception as e:
+                    solver.logger.error(f"Error pushing to Hugging Face Hub: {e}")
 
     @staticmethod
     def get_config_template():
