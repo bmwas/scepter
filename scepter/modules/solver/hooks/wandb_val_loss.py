@@ -152,8 +152,21 @@ class WandbValLossHook(ValLossHook):
                     solver.logger.warning(f"Error logging best validation curve: {e}")
             # Log best scalar value
             if 'all' in compute_results:
-                best_val_loss = min(self.results['summary']['all'].values())
-                best_step = min(self.results['summary']['all'], key=self.results['summary']['all'].get)
+                # Load history for best validation loss
+                try:
+                    history_bytes = FS.get_object(os.path.join(solver.work_dir, self.save_folder, 'history.json'))
+                    history = json.loads(history_bytes.decode())
+                    all_summary = history.get('summary', {}).get('all', {})
+                    if all_summary:
+                        best_val_loss = min(all_summary.values())
+                        best_step = min(all_summary, key=all_summary.get)
+                    else:
+                        best_val_loss = float(compute_results['all'])
+                        best_step = step
+                except Exception as e:
+                    solver.logger.warning(f"Error loading history.json for best val loss: {e}")
+                    best_val_loss = float(compute_results['all'])
+                    best_step = step
                 self.wandb_run.summary['best_val_loss'] = best_val_loss
                 self.wandb_run.summary['best_val_loss_step'] = best_step
             
