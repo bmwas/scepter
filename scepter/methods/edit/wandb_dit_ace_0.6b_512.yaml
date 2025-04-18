@@ -229,4 +229,4 @@ SOLVER:
         BATCH_SIZE: 1
         NUM_WORKERS: 1
 
-    - {NAME: WandbDatasetArtifactHook, PRIORITY: 99}
+    - {NAME: WandbDatasetArtifactHook, PRIORITY: 150}
