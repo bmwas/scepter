@@ -53,10 +53,11 @@ class WandbDatasetArtifactHook(Hook):
         self.logger.info(f"Found CSV paths: TRAIN={self.train_csv}, VAL={self.val_csv}, EXTRA={self.extra_csvs}")
         self.logger.info(f"WORK_DIR: {self.work_dir}")
             
-        # Only log on main process and if wandb is initialized
-        if hasattr(solver, 'wandb_run') and solver.wandb_run is not None and getattr(solver, 'local_rank', 0) == 0:
+        # Only log on main process and if a wandb run exists
+        wandb_run = wandb.run
+        if wandb_run is not None and getattr(solver, 'local_rank', 0) == 0:
             # Step 1: Log CSVs as artifacts and to /table
-            self._log_csvs_to_wandb(solver.wandb_run)
+            self._log_csvs_to_wandb(wandb_run)
             
             # Step 2: Set up WORK_DIR tracking (for when files are created later)
             if self.work_dir and os.path.exists(self.work_dir):
@@ -69,12 +70,13 @@ class WandbDatasetArtifactHook(Hook):
             
     def after_solve(self, solver):
         """Log all files in WORK_DIR after training is complete"""
-        if hasattr(solver, 'wandb_run') and solver.wandb_run is not None and getattr(solver, 'local_rank', 0) == 0:
+        wandb_run = wandb.run
+        if wandb_run is not None and getattr(solver, 'local_rank', 0) == 0:
             if self.work_dir and os.path.exists(self.work_dir):
                 # Log everything in WORK_DIR as an artifact too
                 artifact = wandb.Artifact('workdir_files', type='model_outputs')
                 artifact.add_dir(self.work_dir)
-                solver.wandb_run.log_artifact(artifact)
+                wandb_run.log_artifact(artifact)
                 self.logger.info(f"Logged all files in WORK_DIR as an artifact: {self.work_dir}")
             
     def _log_csvs_to_wandb(self, wandb_run):
