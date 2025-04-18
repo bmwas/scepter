@@ -11,8 +11,8 @@ SOLVER:
   USE_AMP: True
   DTYPE: float16
   CHANNELS_LAST: True
-  MAX_STEPS: 1000
-  MAX_EPOCHS: 3
+  MAX_STEPS: 1500
+  MAX_EPOCHS: -1
   NUM_FOLDS: 10
   ACCU_STEP: 1
   EVAL_INTERVAL: 5
@@ -135,7 +135,7 @@ SOLVER:
     LEARNING_RATE: 1e-5  # Increased from 1e-8
     EPS: 1e-6
     WEIGHT_DECAY: 1e-5
-    CLIP_GRAD_NORM: 1.0 # increased from 0.1
+    CLIP_GRAD_NORM: 0.5 # increased from 0.1
     BETAS: [0.9, 0.999]
     GRAD_ACCUMULATION: 4
 
@@ -143,7 +143,7 @@ SOLVER:
     NAME: CosineAnnealingLR
     T_MAX: 1000  # Adjust to match MAX_STEPS
     ETA_MIN: 1e-7  # Small non-zero minimum LR for stability
-    WARMUP_STEPS: 200  # Increased warm-up for smoother convergence
+    WARMUP_STEPS: 300  # Increased warm-up for smoother convergence
 
   #
   TRAIN_DATA:
