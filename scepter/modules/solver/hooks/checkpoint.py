@@ -380,11 +380,30 @@ class CheckpointHook(Hook):
                             exist_ok=True
                         )
                         print(f" Starting upload to Hugging Face... (this may take a while)")
+                        # List files being uploaded to help with debugging
+                        print(f"\nUploading the following files:")
+                        import os
+                        for root, dirs, files in os.walk(local_dir):
+                            for file in files:
+                                full_path = os.path.join(root, file)
+                                rel_path = os.path.relpath(full_path, local_dir)
+                                file_size = os.path.getsize(full_path) / (1024 * 1024)  # Convert to MB
+                                print(f" - {rel_path} ({file_size:.2f} MB)")
                         api.upload_folder(
                             folder_path=local_dir,
                             repo_id=self.hub_model_id,
                             repo_type="model"
                         )
+                        
+                        # Check what was actually uploaded by listing repo contents
+                        print("\nVerifying repository contents on Hugging Face:")
+                        try:
+                            repo_files = api.list_repo_files(repo_id=self.hub_model_id, repo_type="model")
+                            for file in repo_files:
+                                print(f" - {file}")
+                            print(f"\nTotal files in repository: {len(repo_files)}")
+                        except Exception as e:
+                            print(f"Could not list repository contents: {e}")
                         print("\n" + "="*80)
                         print(f" SUCCESS! MODEL UPLOADED TO HUGGING FACE HUB: {self.hub_model_id}")
                         print(f" View your model at: https://huggingface.co/{self.hub_model_id}")
