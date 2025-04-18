@@ -338,6 +338,7 @@ class CheckpointHook(Hook):
                 try:
                     import sys
                     import subprocess
+                    import os
                     
                     # Debug information to help diagnose import issues
                     solver.logger.info(f"Python path: {sys.path}")
