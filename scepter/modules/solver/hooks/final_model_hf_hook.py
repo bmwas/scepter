@@ -80,10 +80,15 @@ class FinalModelHFHook(Hook):
         self.hub_token = cfg.get('HUB_TOKEN', os.environ.get('HUGGINGFACE_TOKEN', ''))
 
         # Try to load token from .env if not already present
-        if not self.hub_token:
+        if not self.hub_token or not self.hub_token.startswith('hf_'):
             load_dotenv()
             self.hub_token = os.environ.get('HUGGINGFACE_TOKEN', '')
-
+        # Log token prefix for debugging (never log full token)
+        if self.hub_token:
+            print(f"[HF Export] Loaded Hugging Face token: {self.hub_token[:8]}... (length {len(self.hub_token)})")
+        else:
+            print("[HF Export] No Hugging Face token loaded! Aborting any upload attempts.")
+            
         # Initialize wandb
         self.wandb_run = None
         
@@ -437,11 +442,16 @@ class FinalModelHFHook(Hook):
                     # Try to serialize the encoder model directly (if it is a Hugging Face model)
                     try:
                         if hasattr(model.cond_stage_model, "model") and hasattr(model.cond_stage_model.model, "save_pretrained"):
-                            model.cond_stage_model.model.save_pretrained(text_encoder_output)
-                            solver.logger.info("Saved text encoder via save_pretrained()")
-                            # Ensure required shard files exist
-                            self._add_missing_text_encoder_files(text_encoder_output, solver)
-                            text_encoder_success = True
+                            try:
+                                model.cond_stage_model.model.save_pretrained(text_encoder_output)
+                                solver.logger.info("Saved text encoder via save_pretrained()")
+                                # Ensure required shard files exist
+                                self._add_missing_text_encoder_files(text_encoder_output, solver)
+                                text_encoder_success = True
+                            except Exception as e:
+                                solver.logger.warning(f"Failed to call save_pretrained on text encoder: {e}")
+                                if 'No space left on device' in str(e):
+                                    solver.logger.error("No space left on device! Please clean up disk space and try again.")
                         else:
                             solver.logger.info("cond_stage_model.model does not support save_pretrained – generating placeholders")
                     except Exception as e:
@@ -780,8 +790,9 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             
     def _huggingface_login(self, solver):
         """Ensure we are logged in to the Hugging Face CLI/API."""
-        if not self.hub_token:
-            solver.logger.warning("Hugging Face token missing; cannot login.")
+        if not self.hub_token or not self.hub_token.startswith('hf_'):
+            solver.logger.error(f"Hugging Face token missing or invalid (token: {self.hub_token[:8]}...)")
+            solver.logger.error("Set a valid HUGGINGFACE_TOKEN in your .env or environment and try again.")
             return False
 
         # First, try python API login
@@ -805,6 +816,7 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             return True
         except Exception as cli_e:
             solver.logger.error(f"CLI login failed: {cli_e}")
+            solver.logger.error("Check that your HUGGINGFACE_TOKEN is valid and not expired.")
             return False
 
     def _copy_to_local_for_upload(self, src_dir, dst_dir, solver):
