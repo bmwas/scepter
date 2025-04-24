@@ -3,6 +3,9 @@
 
 import os
 import os.path as osp
+import subprocess
+
+from dotenv import load_dotenv
 import shutil
 from typing import Dict, Any, Optional
 import time
@@ -17,7 +20,7 @@ from scepter.modules.utils.config import dict_to_yaml
 from scepter.modules.utils.distribute import we
 
 try:
-    from huggingface_hub import HfApi
+    from huggingface_hub import HfApi, login as hf_login, HfFolder
     import wandb
 except ImportError:
     pass
@@ -75,7 +78,12 @@ class FinalModelHFHook(Hook):
         self.hub_model_id = cfg.get('HUB_MODEL_ID', '')
         self.hub_private = cfg.get('HUB_PRIVATE', False)
         self.hub_token = cfg.get('HUB_TOKEN', os.environ.get('HUGGINGFACE_TOKEN', ''))
-        
+
+        # Try to load token from .env if not already present
+        if not self.hub_token:
+            load_dotenv()
+            self.hub_token = os.environ.get('HUGGINGFACE_TOKEN', '')
+
         # Initialize wandb
         self.wandb_run = None
         
@@ -719,6 +727,11 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
 
     def _push_to_huggingface(self, solver):
         """Push the model to Hugging Face Hub."""
+        # Ensure authentication
+        if not self._huggingface_login(solver):
+            solver.logger.error("Aborting push: not authenticated with Hugging Face.")
+            return
+            
         if not self.hub_model_id:
             solver.logger.warning("Cannot push to Hugging Face: No model ID specified")
             return
@@ -741,6 +754,7 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
                 
             # Upload using huggingface_hub
             api = HfApi()
+            solver.logger.info("Creating (or accessing) repository …")
             api.create_repo(
                 repo_id=self.hub_model_id,
                 private=self.hub_private,
@@ -749,17 +763,13 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             )
             
             # Upload all files in the directory
-            solver.logger.info(f"Uploading {local_dir} to Hugging Face Hub as {self.hub_model_id}")
-            
-            # List local files to confirm what's being uploaded
-            local_files = os.listdir(local_dir)
-            solver.logger.info(f"Files to upload: {local_files}")
-            
-            api.upload_folder(
+            solver.logger.info("Uploading folder to Hugging Face … this can take a while …")
+            commit_info = api.upload_folder(
                 folder_path=local_dir,
                 repo_id=self.hub_model_id,
                 token=self.hub_token
             )
+            solver.logger.info(f"Upload complete. Commit sha: {commit_info.commit_sha}")
             
             # Clean up
             shutil.rmtree(local_dir)
@@ -768,6 +778,35 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
         except Exception as e:
             solver.logger.error(f"Failed to push to Hugging Face Hub: {e}")
             
+    def _huggingface_login(self, solver):
+        """Ensure we are logged in to the Hugging Face CLI/API."""
+        if not self.hub_token:
+            solver.logger.warning("Hugging Face token missing; cannot login.")
+            return False
+
+        # First, try python API login
+        try:
+            hf_login(token=self.hub_token, add_to_git_credential=True)
+            user = HfApi().whoami(token=self.hub_token)
+            solver.logger.info(f"Logged in to Hugging Face as: {user.get('name', user.get('email', 'unknown'))}")
+            return True
+        except Exception as e:
+            solver.logger.warning(f"huggingface_hub.login() failed: {e}; trying CLI fallback…")
+        
+        # Fallback: use subprocess with huggingface-cli
+        try:
+            result = subprocess.run(
+                ["huggingface-cli", "login", "--token", self.hub_token, "--yes"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            solver.logger.info(f"CLI login successful. stdout: {result.stdout.strip()}")
+            return True
+        except Exception as cli_e:
+            solver.logger.error(f"CLI login failed: {cli_e}")
+            return False
+
     def _copy_to_local_for_upload(self, src_dir, dst_dir, solver):
         """Manually copy model components to a local directory for upload."""
         try:
