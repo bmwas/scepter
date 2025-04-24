@@ -79,6 +79,7 @@ if TYPE_CHECKING:
     from scepter.modules.solver.hooks.wandb_val_loss import WandbValLossHook
     from scepter.modules.solver.hooks.wandb_file_tracker import WandbFileTrackerHook
     from scepter.modules.solver.hooks.wandb_dataset_artifact import WandbDatasetArtifactHook
+    from scepter.modules.solver.hooks.final_model_hf_hook import FinalModelHFHook
 else:
     _import_structure = {
         'backward': ['BackwardHook'],
@@ -98,7 +99,8 @@ else:
         'wandb_lr': ['WandbLrHook'],
         'wandb_val_loss': ['WandbValLossHook'],
         'wandb_file_tracker': ['WandbFileTrackerHook'],
-        'wandb_dataset_artifact': ['WandbDatasetArtifactHook']
+        'wandb_dataset_artifact': ['WandbDatasetArtifactHook'],
+        'final_model_hf_hook': ['FinalModelHFHook']
     }
 
     import sys

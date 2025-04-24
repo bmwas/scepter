@@ -199,6 +199,15 @@ SOLVER:
       ARTIFACT_MODEL_DIR: "models",
       MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
       STRUCTURED_ARTIFACTS: true}            # Enable structured artifacts with required subdirectories
+    # ---------------- Complete model with all components ----------------
+    - {NAME: FinalModelHFHook, PRIORITY: 1200,
+      OUTPUT_DIR: "FINAL_MODEL_HF",
+      SAVE_ON_STEPS: [500, 1000, 1500],  # Save at these specific steps
+      MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
+      PUSH_TO_HUB: true,
+      HUB_MODEL_ID: "Benson/ace-model-0.6b-512-complete",
+      HUB_PRIVATE: false,
+      HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
     # ---------------- LR tracking ------------ 
     - {NAME: WandbLrHook,         LOG_LR_SCHEDULE: True, PRIORITY: 200}     # :contentReference[oaicite:1]{index=1}
     # Note: WandbValLossHook removed as it requires run_step_val method
