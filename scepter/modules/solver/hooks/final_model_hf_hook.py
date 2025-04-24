@@ -94,7 +94,7 @@ class FinalModelHFHook(Hook):
             
             # Ensure output directory exists
             self.full_output_dir = osp.join(solver.work_dir, self.output_dir)
-            FS.makedir(self.full_output_dir)
+            FS.make_dir(self.full_output_dir)
             
             # Set model ID from solver config if not specified
             if not self.hub_model_id and hasattr(solver.cfg, 'HUB_MODEL_ID'):
@@ -150,23 +150,23 @@ class FinalModelHFHook(Hook):
         else:
             output_path = osp.join(self.full_output_dir, f"step_{step}")
             
-        FS.makedir(output_path)
+        FS.make_dir(output_path)
         solver.logger.info(f"Saving model components to {output_path}")
         
         # Create subdirectories for each component with required structure
         # dit/ - contains ace_0.6b_512px.pth
-        FS.makedir(osp.join(output_path, "dit"))
+        FS.make_dir(osp.join(output_path, "dit"))
         
         # vae/ - contains vae.bin
-        FS.makedir(osp.join(output_path, "vae"))
+        FS.make_dir(osp.join(output_path, "vae"))
         
         # text_encoder/ - contains t5-v1_1-xxl/ subfolder with model files
-        FS.makedir(osp.join(output_path, "text_encoder"))
-        FS.makedir(osp.join(output_path, "text_encoder", "t5-v1_1-xxl"))
+        FS.make_dir(osp.join(output_path, "text_encoder"))
+        FS.make_dir(osp.join(output_path, "text_encoder", "t5-v1_1-xxl"))
         
         # tokenizer/ - contains t5-v1_1-xxl/ subfolder with tokenizer files
-        FS.makedir(osp.join(output_path, "tokenizer"))
-        FS.makedir(osp.join(output_path, "tokenizer", "t5-v1_1-xxl"))
+        FS.make_dir(osp.join(output_path, "tokenizer"))
+        FS.make_dir(osp.join(output_path, "tokenizer", "t5-v1_1-xxl"))
             
         # Save model configuration
         config_dict = solver.cfg.to_dict() if hasattr(solver.cfg, 'to_dict') else solver.cfg
@@ -421,13 +421,26 @@ class FinalModelHFHook(Hook):
                     except Exception as e:
                         solver.logger.warning(f"Error copying text encoder files: {e}")
                 else:
-                    # We couldn't access the text encoder files directly, add placeholders
-                    solver.logger.warning(f"Text encoder path {text_encoder_src} does not exist")
+                    solver.logger.warning(f"Text encoder path {text_encoder_src} does not exist – trying to save from in-memory model")
+                    
                     text_encoder_output = osp.join(output_path, "text_encoder", "t5-v1_1-xxl")
-                    # Make sure the output directory exists
-                    FS.makedir(text_encoder_output)
-                    # Add placeholder files
-                    self._add_missing_text_encoder_files(text_encoder_output, solver)
+                    FS.make_dir(text_encoder_output)
+                    
+                    # Try to serialize the encoder model directly (if it is a Hugging Face model)
+                    try:
+                        if hasattr(model.cond_stage_model, "model") and hasattr(model.cond_stage_model.model, "save_pretrained"):
+                            model.cond_stage_model.model.save_pretrained(text_encoder_output)
+                            solver.logger.info("Saved text encoder via save_pretrained()")
+                            text_encoder_success = True
+                        else:
+                            solver.logger.info("cond_stage_model.model does not support save_pretrained – generating placeholders")
+                    except Exception as e:
+                        solver.logger.warning(f"Failed to call save_pretrained on text encoder: {e}")
+                    
+                    # If still not successful, create placeholder files so downstream loading still works
+                    if not text_encoder_success:
+                        self._add_missing_text_encoder_files(text_encoder_output, solver)
+                        text_encoder_success = True
             else:
                 solver.logger.warning("Could not determine text encoder source path")
                 
@@ -495,13 +508,24 @@ class FinalModelHFHook(Hook):
                         
                         tokenizer_success = True
                     else:
-                        # We couldn't access the tokenizer files directly, add placeholders
-                        solver.logger.warning(f"Tokenizer path {tokenizer_src} does not exist")
+                        solver.logger.warning(f"Tokenizer path {tokenizer_src} does not exist – trying to save from in-memory tokenizer")
+                        
                         tokenizer_output = osp.join(output_path, "tokenizer", "t5-v1_1-xxl")
-                        # Make sure the directory exists
-                        FS.makedir(tokenizer_output)
-                        # Add placeholder files
-                        self._add_missing_tokenizer_files(tokenizer_output, solver)
+                        FS.make_dir(tokenizer_output)
+                        
+                        try:
+                            if hasattr(model.cond_stage_model, "tokenizer") and hasattr(model.cond_stage_model.tokenizer, "save_pretrained"):
+                                model.cond_stage_model.tokenizer.save_pretrained(tokenizer_output)
+                                solver.logger.info("Saved tokenizer via save_pretrained()")
+                                tokenizer_success = True
+                            else:
+                                solver.logger.info("cond_stage_model.tokenizer does not support save_pretrained – generating placeholders")
+                        except Exception as e:
+                            solver.logger.warning(f"Failed to call save_pretrained on tokenizer: {e}")
+                        
+                        if not tokenizer_success:
+                            self._add_missing_tokenizer_files(tokenizer_output, solver)
+                            tokenizer_success = True
                 except Exception as e:
                     solver.logger.warning(f"Error checking tokenizer path: {e}")
             else:
