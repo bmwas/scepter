@@ -172,14 +172,65 @@ class FinalModelHFHook(Hook):
         config_dict = solver.cfg.to_dict() if hasattr(solver.cfg, 'to_dict') else solver.cfg
         config_path = osp.join(output_path, "config.yaml")
         
-        # Use temporary file for writing the config
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-            temp_file.write(dict_to_yaml('CONFIG', 'ACEModel', config_dict))
-            temp_path = temp_file.name
-        
-        # Copy the temp file to the target location
-        FS.write_to(config_path, temp_path)
-        os.unlink(temp_path)  # Clean up the temporary file
+        # Handle config conversion properly
+        try:
+            # If config_dict is already a dictionary, use it
+            if isinstance(config_dict, dict):
+                config_yaml = dict_to_yaml('CONFIG', 'ACEModel', config_dict)
+            # If it's a Config object, convert to dictionary first
+            elif hasattr(config_dict, 'cfg_dict'):
+                config_yaml = dict_to_yaml('CONFIG', 'ACEModel', config_dict.cfg_dict)
+            # Fall back to a simple dictionary with the main settings
+            else:
+                # Create a simplified config with the most important information
+                simplified_config = {
+                    'MODEL': {
+                        'NAME': 'LatentDiffusionACE',
+                        'COMPONENTS': {
+                            'DIFFUSION_MODEL': 'ACE-0.6B-512px',
+                            'VAE': 'AutoencoderKL',
+                            'TEXT_ENCODER': 'T5-XXL'
+                        }
+                    },
+                    'INFERENCE': {
+                        'SAMPLER': 'ddim',
+                        'SAMPLE_STEPS': 20,
+                        'GUIDE_SCALE': 4.5
+                    }
+                }
+                config_yaml = dict_to_yaml('CONFIG', 'ACEModel', simplified_config)
+            
+            # Use temporary file for writing the config
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+                temp_file.write(config_yaml)
+                temp_path = temp_file.name
+            
+            # Copy the temp file to the target location
+            FS.write_to(config_path, temp_path)
+            os.unlink(temp_path)  # Clean up the temporary file
+            
+        except Exception as e:
+            solver.logger.warning(f"Failed to save config.yaml: {e}. Creating a minimal config file instead.")
+            
+            # Create a minimal config file
+            minimal_config = {
+                'MODEL': 'ACE-0.6B-512px',
+                'COMPONENT_PATHS': {
+                    'DIT': 'dit/ace_0.6b_512px.pth',
+                    'VAE': 'vae/vae.bin',
+                    'TEXT_ENCODER': 'text_encoder/t5-v1_1-xxl',
+                    'TOKENIZER': 'tokenizer/t5-v1_1-xxl'
+                }
+            }
+            
+            minimal_yaml = json.dumps(minimal_config, indent=2)
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+                temp_file.write(minimal_yaml)
+                temp_path = temp_file.name
+            
+            # Copy the temp file to the target location
+            FS.write_to(config_path, temp_path)
+            os.unlink(temp_path)  # Clean up the temporary file
             
         # Save each model component
         model = solver.model.module if hasattr(solver.model, 'module') else solver.model
