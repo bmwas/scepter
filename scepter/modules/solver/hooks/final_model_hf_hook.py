@@ -607,6 +607,8 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
         FS.put_object_from_local_file(temp_path, readme_path)
         os.unlink(temp_path)  # Clean up
         
+        # Log all files and warn if any required file is missing
+        self._log_final_folder_contents(output_path, solver)
         solver.logger.info(f"Saved all model components to {output_path}")
         return output_path
         
@@ -642,6 +644,46 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             solver.logger.warning(f"Error listing files in {directory_path}: {e}")
             return []
         
+    def _log_final_folder_contents(self, output_path, solver):
+        """
+        Log all files in each model subfolder and warn if any required file is missing.
+        """
+        import glob
+        components = {
+            "dit": [osp.join(output_path, "dit", "ace_0.6b_512px.pth")],
+            "vae": [osp.join(output_path, "vae", "vae.bin")],
+            "text_encoder": [
+                osp.join(output_path, "text_encoder", "t5-v1_1-xxl", fname)
+                for fname in [
+                    "config.json",
+                    "pytorch_model.bin",
+                    "pytorch_model-00001-of-00005.bin",
+                    "pytorch_model-00002-of-00005.bin",
+                    "pytorch_model-00003-of-00005.bin",
+                    "pytorch_model-00004-of-00005.bin",
+                    "pytorch_model-00005-of-00005.bin",
+                    "special_tokens_map.json"
+                ]
+            ],
+            "tokenizer": [
+                osp.join(output_path, "tokenizer", "t5-v1_1-xxl", fname)
+                for fname in [
+                    "spiece.model",
+                    "tokenizer_config.json",
+                    "special_tokens_map.json",
+                    "added_tokens.json"
+                ]
+            ]
+        }
+        for comp, files in components.items():
+            solver.logger.info(f"--- {comp.upper()} files in export ---")
+            for f in files:
+                if os.path.exists(f):
+                    solver.logger.info(f"  [OK] {f}")
+                else:
+                    solver.logger.warning(f"  [MISSING] {f}")
+        solver.logger.info("--- End of export folder content summary ---")
+
     def _add_missing_text_encoder_files(self, text_encoder_path, solver):
         """Add placeholder files for the text encoder if they are missing."""
         required_files = [
