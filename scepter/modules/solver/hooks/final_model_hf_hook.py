@@ -821,7 +821,9 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
                 repo_id=self.hub_model_id,
                 token=self.hub_token
             )
-            solver.logger.info(f"Upload complete. Commit sha: {commit_info.commit_sha}")
+            # Robustly log commit hash/id regardless of hf_hub version
+            commit_hash = getattr(commit_info, 'commit_hash', getattr(commit_info, 'commit_id', 'unknown'))
+            solver.logger.info(f"Upload complete. Commit: {commit_hash}")
             
             # Clean up
             shutil.rmtree(local_dir)
