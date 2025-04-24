@@ -106,7 +106,8 @@ class FinalModelHFHook(Hook):
                 solver.logger.info(f"FinalModelHFHook: Connected to wandb run: {self.wandb_run.name}")
             
             # Ensure output directory exists
-            self.full_output_dir = osp.join(solver.work_dir, self.output_dir)
+            # All Hugging Face export must go under 'models/'
+            self.full_output_dir = osp.join(solver.work_dir, self.output_dir, 'models')
             FS.make_dir(self.full_output_dir)
             
             # Set model ID from solver config if not specified
@@ -166,24 +167,17 @@ class FinalModelHFHook(Hook):
         FS.make_dir(output_path)
         solver.logger.info(f"Saving model components to {output_path}")
         
-        # Create subdirectories for each component with required structure
-        # dit/ - contains ace_0.6b_512px.pth
+        # All model subfolders are now under models/dit, models/vae, ...
         FS.make_dir(osp.join(output_path, "dit"))
-        
-        # vae/ - contains vae.bin
         FS.make_dir(osp.join(output_path, "vae"))
-        
-        # text_encoder/ - contains t5-v1_1-xxl/ subfolder with model files
         FS.make_dir(osp.join(output_path, "text_encoder"))
         FS.make_dir(osp.join(output_path, "text_encoder", "t5-v1_1-xxl"))
-        
-        # tokenizer/ - contains t5-v1_1-xxl/ subfolder with tokenizer files
         FS.make_dir(osp.join(output_path, "tokenizer"))
         FS.make_dir(osp.join(output_path, "tokenizer", "t5-v1_1-xxl"))
             
         # Save model configuration
         config_dict = solver.cfg.to_dict() if hasattr(solver.cfg, 'to_dict') else solver.cfg
-        config_path = osp.join(output_path, "config.yaml")
+        config_path = osp.join(osp.dirname(output_path), "config.yaml")
         
         # Handle config conversion properly
         try:
@@ -229,10 +223,10 @@ class FinalModelHFHook(Hook):
             minimal_config = {
                 'MODEL': 'ACE-0.6B-512px',
                 'COMPONENT_PATHS': {
-                    'DIT': 'dit/ace_0.6b_512px.pth',
-                    'VAE': 'vae/vae.bin',
-                    'TEXT_ENCODER': 'text_encoder/t5-v1_1-xxl',
-                    'TOKENIZER': 'tokenizer/t5-v1_1-xxl'
+                    'DIT': 'models/dit/ace_0.6b_512px.pth',
+                    'VAE': 'models/vae/vae.bin',
+                    'TEXT_ENCODER': 'models/text_encoder/t5-v1_1-xxl',
+                    'TOKENIZER': 'models/tokenizer/t5-v1_1-xxl'
                 }
             }
             
@@ -555,10 +549,10 @@ class FinalModelHFHook(Hook):
 
         # Verify the model structure is as expected
         required_components = {
-            'dit/ace_0.6b_512px.pth': 'DIT model file',
-            'vae/vae.bin': 'VAE model file',
-            'text_encoder/t5-v1_1-xxl': 'Text encoder directory',
-            'tokenizer/t5-v1_1-xxl': 'Tokenizer directory'
+            'models/dit/ace_0.6b_512px.pth': 'DIT model file',
+            'models/vae/vae.bin': 'VAE model file',
+            'models/text_encoder/t5-v1_1-xxl': 'Text encoder directory',
+            'models/tokenizer/t5-v1_1-xxl': 'Tokenizer directory'
         }
         
         missing_components = []
@@ -573,15 +567,15 @@ class FinalModelHFHook(Hook):
             solver.logger.info("All required model components saved successfully with the correct structure")
             
         # Save a README with usage instructions
-        readme_path = osp.join(output_path, "README.md")
+        readme_path = osp.join(osp.dirname(output_path), "README.md")
         readme_content = f"""# ACE Model - 0.6B 512px
 
 This directory contains all components required for the ACE model:
 
-- `dit/ace_0.6b_512px.pth`: Diffusion Transformer model
-- `vae/vae.bin`: VAE model for encoding/decoding images
-- `text_encoder/t5-v1_1-xxl/`: T5 text encoder (contains 5 .bin files and 2 .json files)
-- `tokenizer/t5-v1_1-xxl/`: T5 tokenizer (contains spiece.model and 3 .json files)
+- `models/dit/ace_0.6b_512px.pth`: Diffusion Transformer model
+- `models/vae/vae.bin`: VAE model for encoding/decoding images
+- `models/text_encoder/t5-v1_1-xxl/`: T5 text encoder (contains 5 .bin files and 2 .json files)
+- `models/tokenizer/t5-v1_1-xxl/`: T5 tokenizer (contains spiece.model and 3 .json files)
 - `config.yaml`: Model configuration
 
 ## Usage
@@ -867,10 +861,10 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
         """Manually copy model components to a local directory for upload."""
         try:
             # Create required subdirectories 
-            os.makedirs(osp.join(dst_dir, "dit"), exist_ok=True)
-            os.makedirs(osp.join(dst_dir, "vae"), exist_ok=True)
-            os.makedirs(osp.join(dst_dir, "text_encoder", "t5-v1_1-xxl"), exist_ok=True)
-            os.makedirs(osp.join(dst_dir, "tokenizer", "t5-v1_1-xxl"), exist_ok=True)
+            os.makedirs(osp.join(dst_dir, "models", "dit"), exist_ok=True)
+            os.makedirs(osp.join(dst_dir, "models", "vae"), exist_ok=True)
+            os.makedirs(osp.join(dst_dir, "models", "text_encoder", "t5-v1_1-xxl"), exist_ok=True)
+            os.makedirs(osp.join(dst_dir, "models", "tokenizer", "t5-v1_1-xxl"), exist_ok=True)
             
             # Copy main files (README.md, config.yaml)
             readme_src = osp.join(src_dir, "README.md")
@@ -887,17 +881,17 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
                 self._copy_file_for_upload(config_src, config_dst, solver)
             
             # Copy DIT model
-            dit_src = osp.join(src_dir, "dit", "ace_0.6b_512px.pth")
+            dit_src = osp.join(src_dir, "models", "dit", "ace_0.6b_512px.pth")
             if FS.exists(dit_src):
-                dit_dst = osp.join(dst_dir, "dit", "ace_0.6b_512px.pth")
+                dit_dst = osp.join(dst_dir, "models", "dit", "ace_0.6b_512px.pth")
                 self._copy_file_for_upload(dit_src, dit_dst, solver)
             else:
                 solver.logger.warning(f"DIT model file not found: {dit_src}")
             
             # Copy VAE model
-            vae_src = osp.join(src_dir, "vae", "vae.bin")
+            vae_src = osp.join(src_dir, "models", "vae", "vae.bin")
             if FS.exists(vae_src):
-                vae_dst = osp.join(dst_dir, "vae", "vae.bin") 
+                vae_dst = osp.join(dst_dir, "models", "vae", "vae.bin") 
                 self._copy_file_for_upload(vae_src, vae_dst, solver)
             else:
                 solver.logger.warning(f"VAE model file not found: {vae_src}")
@@ -915,9 +909,9 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             ]
             
             for filename in text_encoder_files:
-                src_file = osp.join(src_dir, "text_encoder", "t5-v1_1-xxl", filename)
+                src_file = osp.join(src_dir, "models", "text_encoder", "t5-v1_1-xxl", filename)
                 if FS.exists(src_file):
-                    dst_file = osp.join(dst_dir, "text_encoder", "t5-v1_1-xxl", filename)
+                    dst_file = osp.join(dst_dir, "models", "text_encoder", "t5-v1_1-xxl", filename)
                     self._copy_file_for_upload(src_file, dst_file, solver)
                 else:
                     solver.logger.warning(f"Text encoder file not found: {src_file}")
@@ -931,9 +925,9 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             ]
             
             for filename in tokenizer_files:
-                src_file = osp.join(src_dir, "tokenizer", "t5-v1_1-xxl", filename)
+                src_file = osp.join(src_dir, "models", "tokenizer", "t5-v1_1-xxl", filename)
                 if FS.exists(src_file):
-                    dst_file = osp.join(dst_dir, "tokenizer", "t5-v1_1-xxl", filename)
+                    dst_file = osp.join(dst_dir, "models", "tokenizer", "t5-v1_1-xxl", filename)
                     self._copy_file_for_upload(src_file, dst_file, solver)
                 else:
                     solver.logger.warning(f"Tokenizer file not found: {src_file}")
