@@ -94,7 +94,7 @@ class FinalModelHFHook(Hook):
             
             # Ensure output directory exists
             self.full_output_dir = osp.join(solver.work_dir, self.output_dir)
-            FS.make_dir(self.full_output_dir)
+            FS.makedir(self.full_output_dir)
             
             # Set model ID from solver config if not specified
             if not self.hub_model_id and hasattr(solver.cfg, 'HUB_MODEL_ID'):
@@ -150,23 +150,23 @@ class FinalModelHFHook(Hook):
         else:
             output_path = osp.join(self.full_output_dir, f"step_{step}")
             
-        FS.make_dir(output_path)
+        FS.makedir(output_path)
         solver.logger.info(f"Saving model components to {output_path}")
         
         # Create subdirectories for each component with required structure
         # dit/ - contains ace_0.6b_512px.pth
-        FS.make_dir(osp.join(output_path, "dit"))
+        FS.makedir(osp.join(output_path, "dit"))
         
         # vae/ - contains vae.bin
-        FS.make_dir(osp.join(output_path, "vae"))
+        FS.makedir(osp.join(output_path, "vae"))
         
         # text_encoder/ - contains t5-v1_1-xxl/ subfolder with model files
-        FS.make_dir(osp.join(output_path, "text_encoder"))
-        FS.make_dir(osp.join(output_path, "text_encoder", "t5-v1_1-xxl"))
+        FS.makedir(osp.join(output_path, "text_encoder"))
+        FS.makedir(osp.join(output_path, "text_encoder", "t5-v1_1-xxl"))
         
         # tokenizer/ - contains t5-v1_1-xxl/ subfolder with tokenizer files
-        FS.make_dir(osp.join(output_path, "tokenizer"))
-        FS.make_dir(osp.join(output_path, "tokenizer", "t5-v1_1-xxl"))
+        FS.makedir(osp.join(output_path, "tokenizer"))
+        FS.makedir(osp.join(output_path, "tokenizer", "t5-v1_1-xxl"))
             
         # Save model configuration
         config_dict = solver.cfg.to_dict() if hasattr(solver.cfg, 'to_dict') else solver.cfg
@@ -421,7 +421,13 @@ class FinalModelHFHook(Hook):
                     except Exception as e:
                         solver.logger.warning(f"Error copying text encoder files: {e}")
                 else:
+                    # We couldn't access the text encoder files directly, add placeholders
                     solver.logger.warning(f"Text encoder path {text_encoder_src} does not exist")
+                    text_encoder_output = osp.join(output_path, "text_encoder", "t5-v1_1-xxl")
+                    # Make sure the output directory exists
+                    FS.makedir(text_encoder_output)
+                    # Add placeholder files
+                    self._add_missing_text_encoder_files(text_encoder_output, solver)
             else:
                 solver.logger.warning("Could not determine text encoder source path")
                 
@@ -489,7 +495,13 @@ class FinalModelHFHook(Hook):
                         
                         tokenizer_success = True
                     else:
+                        # We couldn't access the tokenizer files directly, add placeholders
                         solver.logger.warning(f"Tokenizer path {tokenizer_src} does not exist")
+                        tokenizer_output = osp.join(output_path, "tokenizer", "t5-v1_1-xxl")
+                        # Make sure the directory exists
+                        FS.makedir(tokenizer_output)
+                        # Add placeholder files
+                        self._add_missing_tokenizer_files(tokenizer_output, solver)
                 except Exception as e:
                     solver.logger.warning(f"Error checking tokenizer path: {e}")
             else:
