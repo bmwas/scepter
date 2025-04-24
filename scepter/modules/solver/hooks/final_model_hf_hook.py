@@ -7,6 +7,8 @@ import shutil
 from typing import Dict, Any, Optional
 import time
 import torch
+import tempfile
+import json
 
 from scepter.modules.solver.hooks.hook import Hook
 from scepter.modules.solver.hooks.registry import HOOKS
@@ -169,8 +171,15 @@ class FinalModelHFHook(Hook):
         # Save model configuration
         config_dict = solver.cfg.to_dict() if hasattr(solver.cfg, 'to_dict') else solver.cfg
         config_path = osp.join(output_path, "config.yaml")
-        with FS.open(config_path, 'w') as f:
-            f.write(dict_to_yaml('CONFIG', 'ACEModel', config_dict))
+        
+        # Use temporary file for writing the config
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            temp_file.write(dict_to_yaml('CONFIG', 'ACEModel', config_dict))
+            temp_path = temp_file.name
+        
+        # Copy the temp file to the target location
+        FS.write_to(config_path, temp_path)
+        os.unlink(temp_path)  # Clean up the temporary file
             
         # Save each model component
         model = solver.model.module if hasattr(solver.model, 'module') else solver.model
@@ -178,7 +187,15 @@ class FinalModelHFHook(Hook):
         # 1. DIT model (diffusion transformer) - must be ace_0.6b_512px.pth
         if 'dit' in self.model_components and hasattr(model, 'diffusion_model'):
             dit_path = osp.join(output_path, 'dit', 'ace_0.6b_512px.pth')
-            torch.save(model.diffusion_model.state_dict(), dit_path)
+            # Save to a temporary file first
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                torch.save(model.diffusion_model.state_dict(), temp_file.name)
+                temp_path = temp_file.name
+            
+            # Copy to the target location
+            FS.write_to(dit_path, temp_path)
+            os.unlink(temp_path)  # Clean up
+            
             solver.logger.info(f"Saved DIT model to {dit_path}")
         else:
             # Try to find the DIT model from the original pretrained path
@@ -186,9 +203,10 @@ class FinalModelHFHook(Hook):
                 pretrained_dit = model.diffusion_model.pretrained_model
                 if pretrained_dit and FS.exists(pretrained_dit):
                     dit_path = osp.join(output_path, 'dit', 'ace_0.6b_512px.pth')
-                    with FS.get_from(pretrained_dit, wait_finish=True) as src_file:
-                        with FS.open(dit_path, 'wb') as dst_file:
-                            dst_file.write(src_file.read())
+                    # Copy the file directly
+                    local_path = FS.get_from(pretrained_dit, wait_finish=True)
+                    FS.write_to(dit_path, local_path)
+                    
                     solver.logger.info(f"Copied DIT model from {pretrained_dit} to {dit_path}")
                 else:
                     solver.logger.warning(f"DIT model not found at {pretrained_dit}")
@@ -198,7 +216,15 @@ class FinalModelHFHook(Hook):
         # 2. VAE model - must be vae.bin
         if 'vae' in self.model_components and hasattr(model, 'first_stage_model'):
             vae_path = osp.join(output_path, 'vae', 'vae.bin')
-            torch.save(model.first_stage_model.state_dict(), vae_path)
+            # Save to a temporary file first
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                torch.save(model.first_stage_model.state_dict(), temp_file.name)
+                temp_path = temp_file.name
+            
+            # Copy to the target location
+            FS.write_to(vae_path, temp_path)
+            os.unlink(temp_path)  # Clean up
+            
             solver.logger.info(f"Saved VAE model to {vae_path}")
         else:
             # Try to get from original pretrained path
@@ -206,15 +232,16 @@ class FinalModelHFHook(Hook):
                 pretrained_vae = model.first_stage_model.pretrained_model
                 if pretrained_vae and FS.exists(pretrained_vae):
                     vae_path = osp.join(output_path, 'vae', 'vae.bin')
-                    with FS.get_from(pretrained_vae, wait_finish=True) as src_file:
-                        with FS.open(vae_path, 'wb') as dst_file:
-                            dst_file.write(src_file.read())
+                    # Copy the file directly
+                    local_path = FS.get_from(pretrained_vae, wait_finish=True)
+                    FS.write_to(vae_path, local_path)
+                    
                     solver.logger.info(f"Copied VAE model from {pretrained_vae} to {vae_path}")
                 else:
                     solver.logger.warning(f"VAE model not found at {pretrained_vae}")
             else:
                 solver.logger.warning("Could not save VAE model - no first_stage_model attribute found")
-            
+                
         # 3. Text encoder - must be in text_encoder/t5-v1_1-xxl/ with 5 bin files and 2 json files
         if 'text_encoder' in self.model_components and hasattr(model, 'cond_stage_model'):
             # For T5 text encoder, we need to copy the entire directory structure
@@ -246,9 +273,10 @@ class FinalModelHFHook(Hook):
                         dst_file_path = osp.join(text_encoder_dst, filename)
                         
                         if FS.is_file(src_file_path):
-                            with FS.get_from(src_file_path, wait_finish=True) as src_file:
-                                with FS.open(dst_file_path, 'wb') as dst_file:
-                                    dst_file.write(src_file.read())
+                            # Get the file from source
+                            local_path = FS.get_from(src_file_path, wait_finish=True)
+                            # Write it to destination
+                            FS.write_to(dst_file_path, local_path)
                     
                     # Verify we have the expected files - at least the essential ones
                     text_encoder_files = FS.list_dir(text_encoder_dst)
@@ -297,9 +325,10 @@ class FinalModelHFHook(Hook):
                         dst_file_path = osp.join(tokenizer_dst, filename)
                         
                         if FS.is_file(src_file_path):
-                            with FS.get_from(src_file_path, wait_finish=True) as src_file:
-                                with FS.open(dst_file_path, 'wb') as dst_file:
-                                    dst_file.write(src_file.read())
+                            # Get the file from source
+                            local_path = FS.get_from(src_file_path, wait_finish=True)
+                            # Write it to destination
+                            FS.write_to(dst_file_path, local_path)
                     
                     # Verify we have the expected files - at least the essential ones
                     tokenizer_files = FS.list_dir(tokenizer_dst)
@@ -337,8 +366,7 @@ class FinalModelHFHook(Hook):
             
         # Save a README with usage instructions
         readme_path = osp.join(output_path, "README.md")
-        with FS.open(readme_path, 'w') as f:
-            f.write(f"""# ACE Model - 0.6B 512px
+        readme_content = f"""# ACE Model - 0.6B 512px
 
 This directory contains all components required for the ACE model:
 
@@ -360,13 +388,22 @@ result = model.generate("A prompt describing your desired image")
 ```
 
 Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
-""")
+"""
+        
+        # Use temporary file for writing README
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            temp_file.write(readme_content)
+            temp_path = temp_file.name
+        
+        # Copy to the target location
+        FS.write_to(readme_path, temp_path)
+        os.unlink(temp_path)  # Clean up
         
         solver.logger.info(f"Saved all model components to {output_path}")
         return output_path
 
     def _copy_directory(self, src, dst):
-        """Copy a directory from source to destination."""
+        """Copy a directory from source to destination using FS API."""
         if not FS.exists(src):
             return False
             
@@ -379,10 +416,9 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             d = osp.join(dst, item)
             
             if FS.is_file(s):
-                # Copy file
-                with FS.open(s, 'rb') as src_file:
-                    with FS.open(d, 'wb') as dst_file:
-                        dst_file.write(src_file.read())
+                # Copy file using get_from and write_to
+                local_path = FS.get_from(s, wait_finish=True)
+                FS.write_to(d, local_path)
             elif FS.is_dir(s):
                 # Recursively copy directory
                 self._copy_directory(s, d)
@@ -402,6 +438,13 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
         solver.logger.info(f"Pushing model to Hugging Face Hub: {self.hub_model_id}")
         
         try:
+            # Get a local copy of the full output directory
+            local_dir = tempfile.mkdtemp()
+            
+            # Copy all files from full_output_dir to the local directory
+            self._copy_directory(self.full_output_dir, local_dir)
+            
+            # Upload using huggingface_hub
             api = HfApi()
             api.create_repo(
                 repo_id=self.hub_model_id,
@@ -412,10 +455,13 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             
             # Upload all files in the directory
             api.upload_folder(
-                folder_path=self.full_output_dir,
+                folder_path=local_dir,
                 repo_id=self.hub_model_id,
                 token=self.hub_token
             )
+            
+            # Clean up
+            shutil.rmtree(local_dir)
             
             solver.logger.info(f"Successfully pushed model to Hugging Face Hub: {self.hub_model_id}")
         except Exception as e:
