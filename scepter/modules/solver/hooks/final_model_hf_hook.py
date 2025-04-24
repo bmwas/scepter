@@ -431,6 +431,8 @@ class FinalModelHFHook(Hook):
                         if hasattr(model.cond_stage_model, "model") and hasattr(model.cond_stage_model.model, "save_pretrained"):
                             model.cond_stage_model.model.save_pretrained(text_encoder_output)
                             solver.logger.info("Saved text encoder via save_pretrained()")
+                            # Ensure required shard files exist
+                            self._add_missing_text_encoder_files(text_encoder_output, solver)
                             text_encoder_success = True
                         else:
                             solver.logger.info("cond_stage_model.model does not support save_pretrained – generating placeholders")
@@ -517,6 +519,8 @@ class FinalModelHFHook(Hook):
                             if hasattr(model.cond_stage_model, "tokenizer") and hasattr(model.cond_stage_model.tokenizer, "save_pretrained"):
                                 model.cond_stage_model.tokenizer.save_pretrained(tokenizer_output)
                                 solver.logger.info("Saved tokenizer via save_pretrained()")
+                                # Ensure all required tokenizer files exist
+                                self._add_missing_tokenizer_files(tokenizer_output, solver)
                                 tokenizer_success = True
                             else:
                                 solver.logger.info("cond_stage_model.tokenizer does not support save_pretrained – generating placeholders")
