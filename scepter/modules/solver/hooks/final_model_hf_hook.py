@@ -206,7 +206,7 @@ class FinalModelHFHook(Hook):
                 temp_path = temp_file.name
             
             # Copy the temp file to the target location
-            FS.write_to(config_path, temp_path)
+            FS.put_object_from_local_file(temp_path, config_path)
             os.unlink(temp_path)  # Clean up the temporary file
             
         except Exception as e:
@@ -229,7 +229,7 @@ class FinalModelHFHook(Hook):
                 temp_path = temp_file.name
             
             # Copy the temp file to the target location
-            FS.write_to(config_path, temp_path)
+            FS.put_object_from_local_file(temp_path, config_path)
             os.unlink(temp_path)  # Clean up the temporary file
             
         # Save each model component
@@ -244,7 +244,7 @@ class FinalModelHFHook(Hook):
                 temp_path = temp_file.name
             
             # Copy to the target location
-            FS.write_to(dit_path, temp_path)
+            FS.put_object_from_local_file(temp_path, dit_path)
             os.unlink(temp_path)  # Clean up
             
             solver.logger.info(f"Saved DIT model to {dit_path}")
@@ -256,7 +256,7 @@ class FinalModelHFHook(Hook):
                     dit_path = osp.join(output_path, 'dit', 'ace_0.6b_512px.pth')
                     # Copy the file directly
                     local_path = FS.get_from(pretrained_dit, wait_finish=True)
-                    FS.write_to(dit_path, local_path)
+                    FS.put_object_from_local_file(local_path, dit_path)
                     
                     solver.logger.info(f"Copied DIT model from {pretrained_dit} to {dit_path}")
                 else:
@@ -273,7 +273,7 @@ class FinalModelHFHook(Hook):
                 temp_path = temp_file.name
             
             # Copy to the target location
-            FS.write_to(vae_path, temp_path)
+            FS.put_object_from_local_file(temp_path, vae_path)
             os.unlink(temp_path)  # Clean up
             
             solver.logger.info(f"Saved VAE model to {vae_path}")
@@ -285,7 +285,7 @@ class FinalModelHFHook(Hook):
                     vae_path = osp.join(output_path, 'vae', 'vae.bin')
                     # Copy the file directly
                     local_path = FS.get_from(pretrained_vae, wait_finish=True)
-                    FS.write_to(vae_path, local_path)
+                    FS.put_object_from_local_file(local_path, vae_path)
                     
                     solver.logger.info(f"Copied VAE model from {pretrained_vae} to {vae_path}")
                 else:
@@ -324,10 +324,9 @@ class FinalModelHFHook(Hook):
                         dst_file_path = osp.join(text_encoder_dst, filename)
                         
                         if FS.is_file(src_file_path):
-                            # Get the file from source
+                            # Copy file using get_from and put_object_from_local_file
                             local_path = FS.get_from(src_file_path, wait_finish=True)
-                            # Write it to destination
-                            FS.write_to(dst_file_path, local_path)
+                            FS.put_object_from_local_file(local_path, dst_file_path)
                     
                     # Verify we have the expected files - at least the essential ones
                     text_encoder_files = FS.list_dir(text_encoder_dst)
@@ -376,10 +375,9 @@ class FinalModelHFHook(Hook):
                         dst_file_path = osp.join(tokenizer_dst, filename)
                         
                         if FS.is_file(src_file_path):
-                            # Get the file from source
+                            # Copy file using get_from and put_object_from_local_file
                             local_path = FS.get_from(src_file_path, wait_finish=True)
-                            # Write it to destination
-                            FS.write_to(dst_file_path, local_path)
+                            FS.put_object_from_local_file(local_path, dst_file_path)
                     
                     # Verify we have the expected files - at least the essential ones
                     tokenizer_files = FS.list_dir(tokenizer_dst)
@@ -447,34 +445,11 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             temp_path = temp_file.name
         
         # Copy to the target location
-        FS.write_to(readme_path, temp_path)
+        FS.put_object_from_local_file(temp_path, readme_path)
         os.unlink(temp_path)  # Clean up
         
         solver.logger.info(f"Saved all model components to {output_path}")
         return output_path
-
-    def _copy_directory(self, src, dst):
-        """Copy a directory from source to destination using FS API."""
-        if not FS.exists(src):
-            return False
-            
-        # Create destination directory
-        FS.make_dir(dst)
-        
-        # List all files in source directory
-        for item in FS.list_dir(src):
-            s = osp.join(src, item)
-            d = osp.join(dst, item)
-            
-            if FS.is_file(s):
-                # Copy file using get_from and write_to
-                local_path = FS.get_from(s, wait_finish=True)
-                FS.write_to(d, local_path)
-            elif FS.is_dir(s):
-                # Recursively copy directory
-                self._copy_directory(s, d)
-                
-        return True
 
     def _push_to_huggingface(self, solver):
         """Push the model to Hugging Face Hub."""
@@ -491,9 +466,30 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
         try:
             # Get a local copy of the full output directory
             local_dir = tempfile.mkdtemp()
+            solver.logger.info(f"Created temporary directory for Hugging Face upload: {local_dir}")
             
             # Copy all files from full_output_dir to the local directory
-            self._copy_directory(self.full_output_dir, local_dir)
+            if FS.exists(self.full_output_dir):
+                # List all components
+                components = FS.list_dir(self.full_output_dir)
+                solver.logger.info(f"Found {len(components)} components to upload: {components}")
+                
+                # Copy each component
+                for component in components:
+                    src_path = osp.join(self.full_output_dir, component)
+                    dst_path = osp.join(local_dir, component)
+                    
+                    if FS.is_dir(src_path):
+                        os.makedirs(dst_path, exist_ok=True)
+                        # Copy directory
+                        self._copy_directory_to_local(src_path, dst_path, solver)
+                    else:
+                        # Copy file
+                        local_file = FS.get_from(src_path, wait_finish=True)
+                        shutil.copy(local_file, dst_path)
+            else:
+                solver.logger.warning(f"Source directory {self.full_output_dir} does not exist")
+                return
             
             # Upload using huggingface_hub
             api = HfApi()
@@ -505,6 +501,7 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             )
             
             # Upload all files in the directory
+            solver.logger.info(f"Uploading {local_dir} to Hugging Face Hub as {self.hub_model_id}")
             api.upload_folder(
                 folder_path=local_dir,
                 repo_id=self.hub_model_id,
@@ -517,6 +514,35 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             solver.logger.info(f"Successfully pushed model to Hugging Face Hub: {self.hub_model_id}")
         except Exception as e:
             solver.logger.error(f"Failed to push to Hugging Face Hub: {e}")
+            
+    def _copy_directory_to_local(self, src, dst, solver):
+        """Copy a directory from the file system to a local directory."""
+        try:
+            if not FS.exists(src):
+                solver.logger.warning(f"Source directory {src} does not exist")
+                return False
+                
+            # Create destination directory
+            os.makedirs(dst, exist_ok=True)
+            
+            # List all files in source directory
+            items = FS.list_dir(src)
+            for item in items:
+                s = osp.join(src, item)
+                d = osp.join(dst, item)
+                
+                if FS.is_file(s):
+                    # Get the file from the file system and save it locally
+                    local_file = FS.get_from(s, wait_finish=True)
+                    shutil.copy(local_file, d)
+                elif FS.is_dir(s):
+                    # Recursively copy directory
+                    self._copy_directory_to_local(s, d, solver)
+                    
+            return True
+        except Exception as e:
+            solver.logger.warning(f"Error copying directory {src} to {dst}: {e}")
+            return False
 
     @staticmethod
     def get_config_template():
