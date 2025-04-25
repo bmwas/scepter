@@ -174,36 +174,34 @@ class FinalModelHFHook(Hook):
         
     def _copy_original_and_update(self, solver, output_path):
         """
-        Copy the original Hugging Face model directory structure to output_path, then overwrite only the updated weights.
+        Copy the original Hugging Face model directory structure to output_path/models, then overwrite only the updated weights.
         """
         import shutil
-        import tempfile
         import os
         import os.path as osp
+        import torch
+        
+        # Always use /models as the root for all components
+        models_dir = osp.join(output_path, "models")
+        os.makedirs(models_dir, exist_ok=True)
         
         # 1. Parse original model paths from config
-        # DIT
-        dit_src = solver.cfg.MODEL.DIFFUSION_MODEL.PRETRAINED_MODEL  # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/dit/ace_0.6b_512px.pth'
-        vae_src = solver.cfg.MODEL.FIRST_STAGE_MODEL.PRETRAINED_MODEL  # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/vae/vae.bin'
-        text_encoder_src = solver.cfg.MODEL.COND_STAGE_MODEL.PRETRAINED_MODEL  # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/text_encoder/t5-v1_1-xxl/'
-        tokenizer_src = solver.cfg.MODEL.COND_STAGE_MODEL.TOKENIZER_PATH  # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/tokenizer/t5-v1_1-xxl'
+        dit_src = solver.cfg.MODEL.DIFFUSION_MODEL.PRETRAINED_MODEL
+        vae_src = solver.cfg.MODEL.FIRST_STAGE_MODEL.PRETRAINED_MODEL
+        text_encoder_src = solver.cfg.MODEL.COND_STAGE_MODEL.PRETRAINED_MODEL
+        tokenizer_src = solver.cfg.MODEL.COND_STAGE_MODEL.TOKENIZER_PATH
         
-        # 2. Download/copy the original model directories to output_path
-        # Use FS.get_dir_to_local_dir for directories, FS.get_to_local_file for files
-        # We'll create a temp dir for each and copy contents
+        # Helper to copy directories or files
         def copy_dir_or_file(src, dst):
             if src.endswith(('.pth', '.bin')):
-                # Single file
                 with FS.get_to_local_file(src) as local_file:
                     os.makedirs(osp.dirname(dst), exist_ok=True)
                     shutil.copy2(local_file, dst)
             else:
-                # Directory
                 with FS.get_dir_to_local_dir(src, wait_finish=True) as local_dir:
                     if not osp.exists(dst):
                         shutil.copytree(local_dir, dst)
                     else:
-                        # Copy contents
                         for item in os.listdir(local_dir):
                             s = osp.join(local_dir, item)
                             d = osp.join(dst, item)
@@ -212,38 +210,38 @@ class FinalModelHFHook(Hook):
                                     shutil.copytree(s, d)
                             else:
                                 shutil.copy2(s, d)
-        # Copy DIT weights and directory
-        dit_dst_dir = osp.join(output_path, "dit")
+        # Copy DIT
+        dit_dst_dir = osp.join(models_dir, "dit")
         os.makedirs(dit_dst_dir, exist_ok=True)
         copy_dir_or_file(osp.dirname(dit_src), dit_dst_dir)
-        # Copy VAE weights
-        vae_dst_dir = osp.join(output_path, "vae")
+        # Copy VAE
+        vae_dst_dir = osp.join(models_dir, "vae")
         os.makedirs(vae_dst_dir, exist_ok=True)
         copy_dir_or_file(osp.dirname(vae_src), vae_dst_dir)
-        # Copy text_encoder directory
-        text_encoder_dst_dir = osp.join(output_path, "text_encoder", "t5-v1_1-xxl")
+        # Copy text_encoder
+        text_encoder_dst_dir = osp.join(models_dir, "text_encoder", "t5-v1_1-xxl")
         os.makedirs(text_encoder_dst_dir, exist_ok=True)
         copy_dir_or_file(text_encoder_src, text_encoder_dst_dir)
-        # Copy tokenizer directory
-        tokenizer_dst_dir = osp.join(output_path, "tokenizer", "t5-v1_1-xxl")
+        # Copy tokenizer
+        tokenizer_dst_dir = osp.join(models_dir, "tokenizer", "t5-v1_1-xxl")
         os.makedirs(tokenizer_dst_dir, exist_ok=True)
         copy_dir_or_file(tokenizer_src, tokenizer_dst_dir)
         
-        # 3. Overwrite only the updated weights (DIT, VAE, optionally text_encoder if USE_GRAD)
-        # Assume solver.model has .dit, .vae, .text_encoder attributes
-        # Save DIT weights
+        # 2. Overwrite only updated weights using correct model attributes
+        model = solver.model.module if hasattr(solver.model, 'module') else solver.model
+        # DIT (diffusion transformer)
         dit_weights_path = osp.join(dit_dst_dir, "ace_0.6b_512px.pth")
-        torch.save(solver.model.dit.state_dict(), dit_weights_path)
-        # Save VAE weights
+        torch.save(model.model.state_dict(), dit_weights_path)
+        # VAE
         vae_weights_path = osp.join(vae_dst_dir, "vae.bin")
-        torch.save(solver.model.vae.state_dict(), vae_weights_path)
-        # Save text_encoder weights only if USE_GRAD is True
-        use_grad = getattr(solver.model.text_encoder, 'use_grad', False)
+        torch.save(model.first_stage_model.state_dict(), vae_weights_path)
+        # Text Encoder (if use_grad)
+        use_grad = getattr(model.cond_stage_model, 'use_grad', False)
         if use_grad:
             text_encoder_weights_path = osp.join(text_encoder_dst_dir, "pytorch_model.bin")
-            torch.save(solver.model.text_encoder.state_dict(), text_encoder_weights_path)
-        # Tokenizer is never updated, so original copy is sufficient
-        solver.logger.info(f"Original model copied and updated weights saved to {output_path}")
+            torch.save(model.cond_stage_model.state_dict(), text_encoder_weights_path)
+        # Tokenizer is never updated
+        solver.logger.info(f"Original model copied and updated weights saved to {models_dir}")
 
     def list_remote_files(self, directory_path, solver):
         """Helper method to list files in a remote directory without using FS.list_dir()."""
