@@ -218,9 +218,10 @@ class FinalModelHFHook(Hook):
         copy_dir_or_file(tokenizer_src, tokenizer_dst_dir)
 
         # --- 2. Overwrite DIT and VAE with the latest trained weights ---
-        # Assume trained weights are saved in the solver's work dir under standard names
-        trained_dit_path = osp.join(solver.cfg.SOLVER.WORK_DIR, "dit", "ace_0.6b_512px.pth")
-        trained_vae_path = osp.join(solver.cfg.SOLVER.WORK_DIR, "vae", "vae.bin")
+        # Use the correct WORK_DIR from config
+        work_dir = solver.cfg.WORK_DIR
+        trained_dit_path = osp.join(work_dir, "dit", "ace_0.6b_512px.pth")
+        trained_vae_path = osp.join(work_dir, "vae", "vae.bin")
         # Overwrite if the trained weights exist
         dit_dst_file = osp.join(dit_dst_dir, "ace_0.6b_512px.pth")
         vae_dst_file = osp.join(vae_dst_dir, "vae.bin")
