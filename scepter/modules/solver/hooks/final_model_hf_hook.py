@@ -178,10 +178,11 @@ class FinalModelHFHook(Hook):
         at_idx = dit_src.find('@')
         if at_idx == -1:
             raise RuntimeError(f"Could not find '@' in DIT path: {dit_src}")
-        models_idx = dit_src.find('/models', at_idx)
+        # Search for 'models' (no leading slash) after '@'
+        models_idx = dit_src.find('models', at_idx)
         if models_idx == -1:
-            raise RuntimeError(f"Could not find '/models' in DIT path: {dit_src}")
-        model_root_uri = dit_src[:models_idx + len('/models')]
+            raise RuntimeError(f"Could not find 'models' in DIT path: {dit_src}")
+        model_root_uri = dit_src[:models_idx + len('models')]
         # Download/copy the entire model root dir to output_path
         with FS.get_dir_to_local_dir(model_root_uri, wait_finish=True) as local_model_root:
             # Copy everything under local_model_root to output_path
