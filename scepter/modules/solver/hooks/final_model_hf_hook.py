@@ -175,6 +175,90 @@ class FinalModelHFHook(Hook):
         FS.make_dir(osp.join(output_path, "tokenizer"))
         FS.make_dir(osp.join(output_path, "tokenizer", "t5-v1_1-xxl"))
             
+        # Save Hugging Face-compatible config.json files for each component and root
+        # 1. Root config.json (model card)
+        root_config = {
+            "_class_name": "LatentDiffusionACE",
+            "model_type": "ACE",
+            "diffusion_model": "dit/ace_0.6b_512px.pth",
+            "vae": "vae/vae.bin",
+            "text_encoder": "text_encoder/t5-v1_1-xxl",
+            "tokenizer": "tokenizer/t5-v1_1-xxl"
+        }
+        root_config_path = osp.join(output_path, "..", "config.json")
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            json.dump(root_config, temp_file, indent=2)
+            temp_path = temp_file.name
+        FS.put_object_from_local_file(temp_path, root_config_path)
+        os.unlink(temp_path)
+
+        # 2. DIT config.json
+        dit_config = {
+            "_class_name": "ACE",
+            "architecture": "diffusion_transformer",
+            "pytorch_model_file": "ace_0.6b_512px.pth"
+        }
+        dit_config_path = osp.join(output_path, "dit", "config.json")
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            json.dump(dit_config, temp_file, indent=2)
+            temp_path = temp_file.name
+        FS.put_object_from_local_file(temp_path, dit_config_path)
+        os.unlink(temp_path)
+
+        # 3. VAE config.json
+        vae_config = {
+            "_class_name": "AutoencoderKL",
+            "pytorch_model_file": "vae.bin"
+        }
+        vae_config_path = osp.join(output_path, "vae", "config.json")
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            json.dump(vae_config, temp_file, indent=2)
+            temp_path = temp_file.name
+        FS.put_object_from_local_file(temp_path, vae_config_path)
+        os.unlink(temp_path)
+
+        # 4. text_encoder config.json
+        text_encoder_config = {
+            "_class_name": "T5EncoderModel",
+            "pytorch_model_file": "pytorch_model.bin"
+        }
+        text_encoder_config_path = osp.join(output_path, "text_encoder", "t5-v1_1-xxl", "config.json")
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            json.dump(text_encoder_config, temp_file, indent=2)
+            temp_path = temp_file.name
+        FS.put_object_from_local_file(temp_path, text_encoder_config_path)
+        os.unlink(temp_path)
+
+        # 5. tokenizer_config.json for tokenizer
+        tokenizer_config = {
+            "_class_name": "T5Tokenizer",
+            "model_max_length": 120,
+            "padding_side": "right",
+            "unk_token": "<unk>",
+            "eos_token": "</s>",
+            "pad_token": "<pad>"
+        }
+        tokenizer_config_path = osp.join(output_path, "tokenizer", "t5-v1_1-xxl", "tokenizer_config.json")
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            json.dump(tokenizer_config, temp_file, indent=2)
+            temp_path = temp_file.name
+        FS.put_object_from_local_file(temp_path, tokenizer_config_path)
+        os.unlink(temp_path)
+
+        # 6. Optionally, model_index.json at root (for pipeline compatibility)
+        model_index = {
+            "_class_name": "StableDiffusionPipeline",
+            "vae": ["vae/vae.bin"],
+            "text_encoder": ["text_encoder/t5-v1_1-xxl/pytorch_model.bin"],
+            "tokenizer": ["tokenizer/t5-v1_1-xxl/spiece.model"]
+        }
+        model_index_path = osp.join(output_path, "..", "model_index.json")
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            json.dump(model_index, temp_file, indent=2)
+            temp_path = temp_file.name
+        FS.put_object_from_local_file(temp_path, model_index_path)
+        os.unlink(temp_path)
+
         # Save model configuration
         config_dict = solver.cfg.to_dict() if hasattr(solver.cfg, 'to_dict') else solver.cfg
         config_path = osp.join(osp.dirname(output_path), "config.yaml")
