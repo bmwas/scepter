@@ -421,9 +421,6 @@ class FinalModelHFHook(Hook):
                                 
                                 solver.logger.info(f"Copied text encoder file: {src_file_path} -> {dst_file_path}")
                         
-                        # Add the required files if they weren't copied
-                        self._add_missing_text_encoder_files(text_encoder_dst, solver)
-                        
                         text_encoder_success = True
                     except Exception as e:
                         solver.logger.warning(f"Error copying text encoder files: {e}")
@@ -439,22 +436,15 @@ class FinalModelHFHook(Hook):
                             try:
                                 model.cond_stage_model.model.save_pretrained(text_encoder_output)
                                 solver.logger.info("Saved text encoder via save_pretrained()")
-                                # Ensure required shard files exist
-                                self._add_missing_text_encoder_files(text_encoder_output, solver)
                                 text_encoder_success = True
                             except Exception as e:
                                 solver.logger.warning(f"Failed to call save_pretrained on text encoder: {e}")
                                 if 'No space left on device' in str(e):
                                     solver.logger.error("No space left on device! Please clean up disk space and try again.")
                         else:
-                            solver.logger.info("cond_stage_model.model does not support save_pretrained – generating placeholders")
+                            solver.logger.warning("cond_stage_model.model does not support save_pretrained and no valid text encoder files found. Skipping text encoder export.")
                     except Exception as e:
                         solver.logger.warning(f"Failed to call save_pretrained on text encoder: {e}")
-                    
-                    # If still not successful, create placeholder files so downstream loading still works
-                    if not text_encoder_success:
-                        self._add_missing_text_encoder_files(text_encoder_output, solver)
-                        text_encoder_success = True
             else:
                 solver.logger.warning("Could not determine text encoder source path")
                 
