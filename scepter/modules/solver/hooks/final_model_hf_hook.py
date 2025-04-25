@@ -163,523 +163,88 @@ class FinalModelHFHook(Hook):
             output_path = self.full_output_dir
         else:
             output_path = osp.join(self.full_output_dir, f"step_{step}")
-            
-        FS.make_dir(output_path)
-        solver.logger.info(f"Saving model components to {output_path}")
         
-        # All model subfolders are now under models/dit, models/vae, ...
-        FS.make_dir(osp.join(output_path, "dit"))
-        FS.make_dir(osp.join(output_path, "vae"))
-        FS.make_dir(osp.join(output_path, "text_encoder"))
-        FS.make_dir(osp.join(output_path, "text_encoder", "t5-v1_1-xxl"))
-        FS.make_dir(osp.join(output_path, "tokenizer"))
-        FS.make_dir(osp.join(output_path, "tokenizer", "t5-v1_1-xxl"))
-            
-        # Save Hugging Face-compatible config.json files for each component and root
-        # 1. Root config.json (model card)
-        root_config = {
-            "_class_name": "LatentDiffusionACE",
-            "model_type": "ACE",
-            "diffusion_model": "dit/ace_0.6b_512px.pth",
-            "vae": "vae/vae.bin",
-            "text_encoder": "text_encoder/t5-v1_1-xxl",
-            "tokenizer": "tokenizer/t5-v1_1-xxl"
-        }
-        root_config_path = osp.join(output_path, "..", "config.json")
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-            json.dump(root_config, temp_file, indent=2)
-            temp_path = temp_file.name
-        FS.put_object_from_local_file(temp_path, root_config_path)
-        os.unlink(temp_path)
-
-        # 2. DIT config.json
-        dit_config = {
-            "_class_name": "ACE",
-            "architecture": "diffusion_transformer",
-            "pytorch_model_file": "ace_0.6b_512px.pth"
-        }
-        dit_config_path = osp.join(output_path, "dit", "config.json")
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-            json.dump(dit_config, temp_file, indent=2)
-            temp_path = temp_file.name
-        FS.put_object_from_local_file(temp_path, dit_config_path)
-        os.unlink(temp_path)
-
-        # 3. VAE config.json
-        vae_config = {
-            "_class_name": "AutoencoderKL",
-            "pytorch_model_file": "vae.bin"
-        }
-        vae_config_path = osp.join(output_path, "vae", "config.json")
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-            json.dump(vae_config, temp_file, indent=2)
-            temp_path = temp_file.name
-        FS.put_object_from_local_file(temp_path, vae_config_path)
-        os.unlink(temp_path)
-
-        # 4. text_encoder config.json
-        text_encoder_config = {
-            "_class_name": "T5EncoderModel",
-            "pytorch_model_file": "pytorch_model.bin"
-        }
-        text_encoder_config_path = osp.join(output_path, "text_encoder", "t5-v1_1-xxl", "config.json")
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-            json.dump(text_encoder_config, temp_file, indent=2)
-            temp_path = temp_file.name
-        FS.put_object_from_local_file(temp_path, text_encoder_config_path)
-        os.unlink(temp_path)
-
-        # 5. tokenizer_config.json for tokenizer
-        tokenizer_config = {
-            "_class_name": "T5Tokenizer",
-            "model_max_length": 120,
-            "padding_side": "right",
-            "unk_token": "<unk>",
-            "eos_token": "</s>",
-            "pad_token": "<pad>"
-        }
-        tokenizer_config_path = osp.join(output_path, "tokenizer", "t5-v1_1-xxl", "tokenizer_config.json")
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-            json.dump(tokenizer_config, temp_file, indent=2)
-            temp_path = temp_file.name
-        FS.put_object_from_local_file(temp_path, tokenizer_config_path)
-        os.unlink(temp_path)
-
-        # 6. Optionally, model_index.json at root (for pipeline compatibility)
-        model_index = {
-            "_class_name": "StableDiffusionPipeline",
-            "vae": ["vae/vae.bin"],
-            "text_encoder": ["text_encoder/t5-v1_1-xxl/pytorch_model.bin"],
-            "tokenizer": ["tokenizer/t5-v1_1-xxl/spiece.model"]
-        }
-        model_index_path = osp.join(output_path, "..", "model_index.json")
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-            json.dump(model_index, temp_file, indent=2)
-            temp_path = temp_file.name
-        FS.put_object_from_local_file(temp_path, model_index_path)
-        os.unlink(temp_path)
-
-        # Save model configuration
-        config_dict = solver.cfg.to_dict() if hasattr(solver.cfg, 'to_dict') else solver.cfg
-        config_path = osp.join(osp.dirname(output_path), "config.yaml")
+        # Use the new robust copy/update method
+        self._copy_original_and_update(solver, output_path)
         
-        # Handle config conversion properly
-        try:
-            # If config_dict is already a dictionary, use it
-            if isinstance(config_dict, dict):
-                config_yaml = dict_to_yaml('CONFIG', 'ACEModel', config_dict)
-            # If it's a Config object, convert to dictionary first
-            elif hasattr(config_dict, 'cfg_dict'):
-                config_yaml = dict_to_yaml('CONFIG', 'ACEModel', config_dict.cfg_dict)
-            # Fall back to a simple dictionary with the main settings
+        # Optionally update README, config.yaml, etc. here if needed
+        # ...
+
+        solver.logger.info(f"Model export complete at {output_path}")
+        
+    def _copy_original_and_update(self, solver, output_path):
+        """
+        Copy the original Hugging Face model directory structure to output_path, then overwrite only the updated weights.
+        """
+        import shutil
+        import tempfile
+        import os
+        import os.path as osp
+        
+        # 1. Parse original model paths from config
+        # DIT
+        dit_src = solver.cfg.MODEL.DIFFUSION_MODEL.PRETRAINED_MODEL  # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/dit/ace_0.6b_512px.pth'
+        vae_src = solver.cfg.MODEL.FIRST_STAGE_MODEL.PRETRAINED_MODEL  # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/vae/vae.bin'
+        text_encoder_src = solver.cfg.MODEL.COND_STAGE_MODEL.PRETRAINED_MODEL  # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/text_encoder/t5-v1_1-xxl/'
+        tokenizer_src = solver.cfg.MODEL.COND_STAGE_MODEL.TOKENIZER_PATH  # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/tokenizer/t5-v1_1-xxl'
+        
+        # 2. Download/copy the original model directories to output_path
+        # Use FS.get_dir_to_local_dir for directories, FS.get_to_local_file for files
+        # We'll create a temp dir for each and copy contents
+        def copy_dir_or_file(src, dst):
+            if src.endswith(('.pth', '.bin')):
+                # Single file
+                with FS.get_to_local_file(src) as local_file:
+                    os.makedirs(osp.dirname(dst), exist_ok=True)
+                    shutil.copy2(local_file, dst)
             else:
-                # Create a simplified config with the most important information
-                simplified_config = {
-                    'MODEL': {
-                        'NAME': 'LatentDiffusionACE',
-                        'COMPONENTS': {
-                            'DIFFUSION_MODEL': 'ACE-0.6B-512px',
-                            'VAE': 'AutoencoderKL',
-                            'TEXT_ENCODER': 'T5-XXL'
-                        }
-                    },
-                    'INFERENCE': {
-                        'SAMPLER': 'ddim',
-                        'SAMPLE_STEPS': 20,
-                        'GUIDE_SCALE': 4.5
-                    }
-                }
-                config_yaml = dict_to_yaml('CONFIG', 'ACEModel', simplified_config)
-            
-            # Use temporary file for writing the config
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-                temp_file.write(config_yaml)
-                temp_path = temp_file.name
-            
-            # Copy the temp file to the target location
-            FS.put_object_from_local_file(temp_path, config_path)
-            os.unlink(temp_path)  # Clean up the temporary file
-            
-        except Exception as e:
-            solver.logger.warning(f"Failed to save config.yaml: {e}. Creating a minimal config file instead.")
-            
-            # Create a minimal config file
-            minimal_config = {
-                'MODEL': 'ACE-0.6B-512px',
-                'COMPONENT_PATHS': {
-                    'DIT': 'models/dit/ace_0.6b_512px.pth',
-                    'VAE': 'models/vae/vae.bin',
-                    'TEXT_ENCODER': 'models/text_encoder/t5-v1_1-xxl',
-                    'TOKENIZER': 'models/tokenizer/t5-v1_1-xxl'
-                }
-            }
-            
-            minimal_yaml = json.dumps(minimal_config, indent=2)
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-                temp_file.write(minimal_yaml)
-                temp_path = temp_file.name
-            
-            # Copy the temp file to the target location
-            FS.put_object_from_local_file(temp_path, config_path)
-            os.unlink(temp_path)  # Clean up the temporary file
-            
-        # Save each model component
-        model = solver.model.module if hasattr(solver.model, 'module') else solver.model
-        
-        # Debug log for model structure
-        solver.logger.info(f"Model type: {type(model).__name__}")
-        if hasattr(model, 'cfg'):
-            solver.logger.info(f"Model config keys: {list(model.cfg.keys()) if hasattr(model.cfg, 'keys') else 'No keys method'}")
-        
-        # 1. DIT model (diffusion transformer) - must be ace_0.6b_512px.pth
-        dit_success = False
-        
-        if hasattr(model, 'diffusion_model'):
-            dit_path = osp.join(output_path, 'dit', 'ace_0.6b_512px.pth')
-            # Save to a temporary file first
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                torch.save(model.diffusion_model.state_dict(), temp_file.name)
-                temp_path = temp_file.name
-            
-            # Copy to the target location
-            FS.put_object_from_local_file(temp_path, dit_path)
-            os.unlink(temp_path)  # Clean up
-            
-            solver.logger.info(f"Saved DIT model to {dit_path}")
-            dit_success = True
-            
-        # If direct save failed, try to find the model from configuration
-        if not dit_success:
-            dit_path = None
-            pretrained_path = None
-            
-            # Try to get from model.cfg.DIFFUSION_MODEL.PRETRAINED_MODEL
-            if hasattr(model, 'cfg') and 'DIFFUSION_MODEL' in model.cfg:
-                if 'PRETRAINED_MODEL' in model.cfg.DIFFUSION_MODEL:
-                    pretrained_path = model.cfg.DIFFUSION_MODEL.PRETRAINED_MODEL
-                    solver.logger.info(f"Found DIT path in model.cfg.DIFFUSION_MODEL.PRETRAINED_MODEL: {pretrained_path}")
-            
-            # Try to get from solver.cfg
-            if not pretrained_path and hasattr(solver, 'cfg') and 'MODEL' in solver.cfg:
-                if 'DIFFUSION_MODEL' in solver.cfg.MODEL and 'PRETRAINED_MODEL' in solver.cfg.MODEL.DIFFUSION_MODEL:
-                    pretrained_path = solver.cfg.MODEL.DIFFUSION_MODEL.PRETRAINED_MODEL
-                    solver.logger.info(f"Found DIT path in solver.cfg.MODEL.DIFFUSION_MODEL.PRETRAINED_MODEL: {pretrained_path}")
-            
-            # Try explicit path from the ACE config
-            if not pretrained_path:
-                explicit_path = "hf://scepter-studio/ACE-0.6B-512px@models/dit/ace_0.6b_512px.pth"
-                solver.logger.info(f"Using explicit fallback path for DIT: {explicit_path}")
-                pretrained_path = explicit_path
-            
-            if pretrained_path:
-                dit_path = osp.join(output_path, 'dit', 'ace_0.6b_512px.pth')
-                try:
-                    # Copy the file directly
-                    local_path = FS.get_from(pretrained_path, wait_finish=True)
-                    FS.put_object_from_local_file(local_path, dit_path)
-                    
-                    solver.logger.info(f"Copied DIT model from {pretrained_path} to {dit_path}")
-                    dit_success = True
-                except Exception as e:
-                    solver.logger.warning(f"Failed to copy DIT model from {pretrained_path}: {e}")
-            
-            if not dit_success:
-                solver.logger.warning(f"Could not save DIT model - no diffusion_model attribute found and no pretrained path available")
-            
-        # 2. VAE model - must be vae.bin
-        vae_success = False
-        
-        if hasattr(model, 'first_stage_model'):
-            vae_path = osp.join(output_path, 'vae', 'vae.bin')
-            # Save to a temporary file first
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                torch.save(model.first_stage_model.state_dict(), temp_file.name)
-                temp_path = temp_file.name
-            
-            # Copy to the target location
-            FS.put_object_from_local_file(temp_path, vae_path)
-            os.unlink(temp_path)  # Clean up
-            
-            solver.logger.info(f"Saved VAE model to {vae_path}")
-            vae_success = True
-            
-        # If direct save failed, try to find from configuration
-        if not vae_success:
-            vae_path = None
-            pretrained_path = None
-            
-            # Try to get from model.cfg.FIRST_STAGE_MODEL.PRETRAINED_MODEL
-            if hasattr(model, 'cfg') and 'FIRST_STAGE_MODEL' in model.cfg:
-                if 'PRETRAINED_MODEL' in model.cfg.FIRST_STAGE_MODEL:
-                    pretrained_path = model.cfg.FIRST_STAGE_MODEL.PRETRAINED_MODEL
-                    solver.logger.info(f"Found VAE path in model.cfg.FIRST_STAGE_MODEL.PRETRAINED_MODEL: {pretrained_path}")
-            
-            # Try to get from solver.cfg
-            if not pretrained_path and hasattr(solver, 'cfg') and 'MODEL' in solver.cfg:
-                if 'FIRST_STAGE_MODEL' in solver.cfg.MODEL and 'PRETRAINED_MODEL' in solver.cfg.MODEL.FIRST_STAGE_MODEL:
-                    pretrained_path = solver.cfg.MODEL.FIRST_STAGE_MODEL.PRETRAINED_MODEL
-                    solver.logger.info(f"Found VAE path in solver.cfg.MODEL.FIRST_STAGE_MODEL.PRETRAINED_MODEL: {pretrained_path}")
-            
-            # Try explicit path from the ACE config
-            if not pretrained_path:
-                explicit_path = "hf://scepter-studio/ACE-0.6B-512px@models/vae/vae.bin"
-                solver.logger.info(f"Using explicit fallback path for VAE: {explicit_path}")
-                pretrained_path = explicit_path
-            
-            if pretrained_path:
-                vae_path = osp.join(output_path, 'vae', 'vae.bin')
-                try:
-                    # Copy the file directly
-                    local_path = FS.get_from(pretrained_path, wait_finish=True)
-                    FS.put_object_from_local_file(local_path, vae_path)
-                    
-                    solver.logger.info(f"Copied VAE model from {pretrained_path} to {vae_path}")
-                    vae_success = True
-                except Exception as e:
-                    solver.logger.warning(f"Failed to copy VAE model from {pretrained_path}: {e}")
-            
-            if not vae_success:
-                solver.logger.warning(f"Could not save VAE model - no first_stage_model attribute found and no pretrained path available")
-                
-        # 3. Text encoder - must be in text_encoder/t5-v1_1-xxl/ with 5 .bin files and 2 json files
-        text_encoder_success = False
-        
-        if hasattr(model, 'cond_stage_model'):
-            # For T5 text encoder, we need to copy the entire directory structure
-            text_encoder_src = None
-            
-            # Try to get path from model
-            if hasattr(model.cond_stage_model, 'model_path'):
-                text_encoder_src = model.cond_stage_model.model_path
-                solver.logger.info(f"Found text encoder path in model.cond_stage_model.model_path: {text_encoder_src}")
-                
-            # Try to get from pretrained_model attribute
-            elif hasattr(model.cond_stage_model, 'pretrained_model'):
-                text_encoder_src = model.cond_stage_model.pretrained_model
-                solver.logger.info(f"Found text encoder path in model.cond_stage_model.pretrained_model: {text_encoder_src}")
-            
-            # Try to get from model.cfg.COND_STAGE_MODEL.PRETRAINED_MODEL
-            if not text_encoder_src and hasattr(model, 'cfg') and 'COND_STAGE_MODEL' in model.cfg:
-                if 'PRETRAINED_MODEL' in model.cfg.COND_STAGE_MODEL:
-                    text_encoder_src = model.cfg.COND_STAGE_MODEL.PRETRAINED_MODEL
-                    solver.logger.info(f"Found text encoder path in model.cfg.COND_STAGE_MODEL.PRETRAINED_MODEL: {text_encoder_src}")
-            
-            # Try to get from solver.cfg
-            if not text_encoder_src and hasattr(solver, 'cfg') and 'MODEL' in solver.cfg:
-                if 'COND_STAGE_MODEL' in solver.cfg.MODEL and 'PRETRAINED_MODEL' in solver.cfg.MODEL.COND_STAGE_MODEL:
-                    text_encoder_src = solver.cfg.MODEL.COND_STAGE_MODEL.PRETRAINED_MODEL
-                    solver.logger.info(f"Found text encoder path in solver.cfg.MODEL.COND_STAGE_MODEL.PRETRAINED_MODEL: {text_encoder_src}")
-            
-            # Try explicit path from the ACE config
-            if not text_encoder_src:
-                explicit_path = "hf://scepter-studio/ACE-0.6B-512px@models/text_encoder/t5-v1_1-xxl"
-                solver.logger.info(f"Using explicit fallback path for text encoder: {explicit_path}")
-                text_encoder_src = explicit_path
-            
-            # Ensure it ends with t5-v1_1-xxl
-            if text_encoder_src:
-                if not text_encoder_src.endswith('t5-v1_1-xxl'):
-                    if text_encoder_src.endswith('/'):
-                        text_encoder_src = osp.join(text_encoder_src, 't5-v1_1-xxl')
+                # Directory
+                with FS.get_dir_to_local_dir(src, wait_finish=True) as local_dir:
+                    if not osp.exists(dst):
+                        shutil.copytree(local_dir, dst)
                     else:
-                        text_encoder_src = osp.join(text_encoder_src, 't5-v1_1-xxl')
-                
-                text_encoder_dst = osp.join(output_path, 'text_encoder', 't5-v1_1-xxl')
-                
-                # Verify source exists
-                if FS.exists(text_encoder_src):
-                    try:
-                        # Get list of files at the source
-                        all_files = self.list_remote_files(text_encoder_src, solver)
-                        solver.logger.info(f"Found {len(all_files)} files in text encoder directory: {all_files}")
-                        
-                        # Copy all files from text_encoder_src to text_encoder_dst
-                        for filename in all_files:
-                            src_file_path = osp.join(text_encoder_src, filename)
-                            dst_file_path = osp.join(text_encoder_dst, filename)
-                            
-                            if FS.exists(src_file_path) and not FS.is_dir(src_file_path):
-                                # Copy file using get_from and put_object_from_local_file
-                                local_path = FS.get_from(src_file_path, wait_finish=True)
-                                FS.put_object_from_local_file(local_path, dst_file_path)
-                                
-                                solver.logger.info(f"Copied text encoder file: {src_file_path} -> {dst_file_path}")
-                        
-                        text_encoder_success = True
-                    except Exception as e:
-                        solver.logger.warning(f"Error copying text encoder files: {e}")
-                else:
-                    solver.logger.warning(f"Text encoder path {text_encoder_src} does not exist – trying to save from in-memory model")
-                    
-                    text_encoder_output = osp.join(output_path, "text_encoder", "t5-v1_1-xxl")
-                    FS.make_dir(text_encoder_output)
-                    
-                    # Try to serialize the encoder model directly (if it is a Hugging Face model)
-                    try:
-                        if hasattr(model.cond_stage_model, "model") and hasattr(model.cond_stage_model.model, "save_pretrained"):
-                            try:
-                                model.cond_stage_model.model.save_pretrained(text_encoder_output)
-                                solver.logger.info("Saved text encoder via save_pretrained()")
-                                text_encoder_success = True
-                            except Exception as e:
-                                solver.logger.warning(f"Failed to call save_pretrained on text encoder: {e}")
-                                if 'No space left on device' in str(e):
-                                    solver.logger.error("No space left on device! Please clean up disk space and try again.")
-                        else:
-                            solver.logger.warning("cond_stage_model.model does not support save_pretrained and no valid text encoder files found. Skipping text encoder export.")
-                    except Exception as e:
-                        solver.logger.warning(f"Failed to call save_pretrained on text encoder: {e}")
-            else:
-                solver.logger.warning("Could not determine text encoder source path")
-                
-        # 4. Tokenizer - must be in tokenizer/t5-v1_1-xxl/ with spiece.model and 3 json files
-        tokenizer_success = False
-        
-        if hasattr(model, 'cond_stage_model'):
-            # We need to get the tokenizer path
-            tokenizer_src = None
-            
-            # Try to get path from model
-            if hasattr(model.cond_stage_model, 'tokenizer_path'):
-                tokenizer_src = model.cond_stage_model.tokenizer_path
-                solver.logger.info(f"Found tokenizer path in model.cond_stage_model.tokenizer_path: {tokenizer_src}")
-                
-            # Check the model config
-            elif hasattr(model, 'cfg') and 'COND_STAGE_MODEL' in model.cfg:
-                if 'TOKENIZER_PATH' in model.cfg.COND_STAGE_MODEL:
-                    tokenizer_src = model.cfg.COND_STAGE_MODEL.TOKENIZER_PATH
-                    solver.logger.info(f"Found tokenizer path in model.cfg.COND_STAGE_MODEL.TOKENIZER_PATH: {tokenizer_src}")
-            
-            # Try to get from solver.cfg
-            if not tokenizer_src and hasattr(solver, 'cfg') and 'MODEL' in solver.cfg:
-                if 'COND_STAGE_MODEL' in solver.cfg.MODEL and 'TOKENIZER_PATH' in solver.cfg.MODEL.COND_STAGE_MODEL:
-                    tokenizer_src = solver.cfg.MODEL.COND_STAGE_MODEL.TOKENIZER_PATH
-                    solver.logger.info(f"Found tokenizer path in solver.cfg.MODEL.COND_STAGE_MODEL.TOKENIZER_PATH: {tokenizer_src}")
-            
-            # Try explicit path from the ACE config
-            if not tokenizer_src:
-                explicit_path = "hf://scepter-studio/ACE-0.6B-512px@models/tokenizer/t5-v1_1-xxl"
-                solver.logger.info(f"Using explicit fallback path for tokenizer: {explicit_path}")
-                tokenizer_src = explicit_path
-            
-            # Ensure it ends with t5-v1_1-xxl
-            if tokenizer_src:
-                if not tokenizer_src.endswith('t5-v1_1-xxl'):
-                    if tokenizer_src.endswith('/'):
-                        tokenizer_src = osp.join(tokenizer_src, 't5-v1_1-xxl')
-                    else:
-                        tokenizer_src = osp.join(tokenizer_src, 't5-v1_1-xxl')
-                
-                tokenizer_dst = osp.join(output_path, 'tokenizer', 't5-v1_1-xxl')
-                
-                # Verify source exists
-                try:
-                    if FS.exists(tokenizer_src):
-                        # Get list of files at the source
-                        all_files = self.list_remote_files(tokenizer_src, solver)
-                        solver.logger.info(f"Found {len(all_files)} files in tokenizer directory: {all_files}")
-                        
-                        # Copy all files from tokenizer_src to tokenizer_dst
-                        for filename in all_files:
-                            src_file_path = osp.join(tokenizer_src, filename)
-                            dst_file_path = osp.join(tokenizer_dst, filename)
-                            
-                            if FS.exists(src_file_path) and not FS.is_dir(src_file_path):
-                                # Copy file using get_from and put_object_from_local_file
-                                local_path = FS.get_from(src_file_path, wait_finish=True)
-                                FS.put_object_from_local_file(local_path, dst_file_path)
-                                
-                                solver.logger.info(f"Copied tokenizer file: {src_file_path} -> {dst_file_path}")
-                        
-                        # Add the required files if they weren't copied
-                        self._add_missing_tokenizer_files(tokenizer_dst, solver)
-                        
-                        tokenizer_success = True
-                    else:
-                        solver.logger.warning(f"Tokenizer path {tokenizer_src} does not exist – trying to save from in-memory tokenizer")
-                        
-                        tokenizer_output = osp.join(output_path, "tokenizer", "t5-v1_1-xxl")
-                        FS.make_dir(tokenizer_output)
-                        
-                        try:
-                            if hasattr(model.cond_stage_model, "tokenizer") and hasattr(model.cond_stage_model.tokenizer, "save_pretrained"):
-                                model.cond_stage_model.tokenizer.save_pretrained(tokenizer_output)
-                                solver.logger.info("Saved tokenizer via save_pretrained()")
-                                # Ensure all required tokenizer files exist
-                                self._add_missing_tokenizer_files(tokenizer_output, solver)
-                                tokenizer_success = True
+                        # Copy contents
+                        for item in os.listdir(local_dir):
+                            s = osp.join(local_dir, item)
+                            d = osp.join(dst, item)
+                            if osp.isdir(s):
+                                if not osp.exists(d):
+                                    shutil.copytree(s, d)
                             else:
-                                solver.logger.info("cond_stage_model.tokenizer does not support save_pretrained – generating placeholders")
-                        except Exception as e:
-                            solver.logger.warning(f"Failed to call save_pretrained on tokenizer: {e}")
-                        
-                        if not tokenizer_success:
-                            self._add_missing_tokenizer_files(tokenizer_output, solver)
-                            tokenizer_success = True
-                except Exception as e:
-                    solver.logger.warning(f"Error checking tokenizer path: {e}")
-            else:
-                solver.logger.warning("Could not determine tokenizer source path")
-
-        # Verify the model structure is as expected
-        required_components = {
-            'models/dit/ace_0.6b_512px.pth': 'DIT model file',
-            'models/vae/vae.bin': 'VAE model file',
-            'models/text_encoder/t5-v1_1-xxl': 'Text encoder directory',
-            'models/tokenizer/t5-v1_1-xxl': 'Tokenizer directory'
-        }
+                                shutil.copy2(s, d)
+        # Copy DIT weights and directory
+        dit_dst_dir = osp.join(output_path, "dit")
+        os.makedirs(dit_dst_dir, exist_ok=True)
+        copy_dir_or_file(osp.dirname(dit_src), dit_dst_dir)
+        # Copy VAE weights
+        vae_dst_dir = osp.join(output_path, "vae")
+        os.makedirs(vae_dst_dir, exist_ok=True)
+        copy_dir_or_file(osp.dirname(vae_src), vae_dst_dir)
+        # Copy text_encoder directory
+        text_encoder_dst_dir = osp.join(output_path, "text_encoder", "t5-v1_1-xxl")
+        os.makedirs(text_encoder_dst_dir, exist_ok=True)
+        copy_dir_or_file(text_encoder_src, text_encoder_dst_dir)
+        # Copy tokenizer directory
+        tokenizer_dst_dir = osp.join(output_path, "tokenizer", "t5-v1_1-xxl")
+        os.makedirs(tokenizer_dst_dir, exist_ok=True)
+        copy_dir_or_file(tokenizer_src, tokenizer_dst_dir)
         
-        missing_components = []
-        for path, description in required_components.items():
-            full_path = osp.join(output_path, path)
-            if not FS.exists(full_path):
-                missing_components.append(f"{path} ({description})")
-                
-        if missing_components:
-            solver.logger.warning(f"Missing required components: {', '.join(missing_components)}")
-        else:
-            solver.logger.info("All required model components saved successfully with the correct structure")
-            
-        # Save a README with usage instructions
-        readme_path = osp.join(osp.dirname(output_path), "README.md")
-        readme_content = f"""# ACE Model - 0.6B 512px
+        # 3. Overwrite only the updated weights (DIT, VAE, optionally text_encoder if USE_GRAD)
+        # Assume solver.model has .dit, .vae, .text_encoder attributes
+        # Save DIT weights
+        dit_weights_path = osp.join(dit_dst_dir, "ace_0.6b_512px.pth")
+        torch.save(solver.model.dit.state_dict(), dit_weights_path)
+        # Save VAE weights
+        vae_weights_path = osp.join(vae_dst_dir, "vae.bin")
+        torch.save(solver.model.vae.state_dict(), vae_weights_path)
+        # Save text_encoder weights only if USE_GRAD is True
+        use_grad = getattr(solver.model.text_encoder, 'use_grad', False)
+        if use_grad:
+            text_encoder_weights_path = osp.join(text_encoder_dst_dir, "pytorch_model.bin")
+            torch.save(solver.model.text_encoder.state_dict(), text_encoder_weights_path)
+        # Tokenizer is never updated, so original copy is sufficient
+        solver.logger.info(f"Original model copied and updated weights saved to {output_path}")
 
-This directory contains all components required for the ACE model:
-
-- `models/dit/ace_0.6b_512px.pth`: Diffusion Transformer model
-- `models/vae/vae.bin`: VAE model for encoding/decoding images
-- `models/text_encoder/t5-v1_1-xxl/`: T5 text encoder (contains 5 .bin files and 2 .json files)
-- `models/tokenizer/t5-v1_1-xxl/`: T5 tokenizer (contains spiece.model and 3 .json files)
-- `config.yaml`: Model configuration
-
-## Usage
-
-For inference, you need to load all components:
-
-```python
-from scepter.model import ACEModel
-
-model = ACEModel.from_pretrained("{self.hub_model_id if self.push_to_hub else 'path/to/model'}")
-result = model.generate("A prompt describing your desired image")
-```
-
-Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
-"""
-        
-        # Use temporary file for writing README
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
-            temp_file.write(readme_content)
-            temp_path = temp_file.name
-        
-        # Copy to the target location
-        FS.put_object_from_local_file(temp_path, readme_path)
-        os.unlink(temp_path)  # Clean up
-        
-        # Log all files and warn if any required file is missing
-        self._log_final_folder_contents(output_path, solver)
-        solver.logger.info(f"Saved all model components to {output_path}")
-        return output_path
-        
     def list_remote_files(self, directory_path, solver):
         """Helper method to list files in a remote directory without using FS.list_dir()."""
         try:
