@@ -184,17 +184,25 @@ class FinalModelHFHook(Hook):
             raise RuntimeError(f"Could not find 'models' in DIT path: {dit_src}")
         model_root_uri = dit_src[:models_idx + len('models')]
         # Download/copy the entire model root dir to output_path
+        def robust_copytree(src, dst):
+            import shutil, os
+            if not os.path.exists(dst):
+                shutil.copytree(src, dst)
+            else:
+                for root, dirs, files in os.walk(src):
+                    rel_root = os.path.relpath(root, src)
+                    dst_root = os.path.join(dst, rel_root) if rel_root != '.' else dst
+                    os.makedirs(dst_root, exist_ok=True)
+                    for file in files:
+                        src_file = os.path.join(root, file)
+                        dst_file = os.path.join(dst_root, file)
+                        shutil.copy2(src_file, dst_file)
         with FS.get_dir_to_local_dir(model_root_uri, wait_finish=True) as local_model_root:
-            # Copy everything under local_model_root to output_path
+            # Copy everything under local_model_root to output_path using robust_copytree
             for item in os.listdir(local_model_root):
                 s = osp.join(local_model_root, item)
                 d = osp.join(output_path, item)
-                if osp.isdir(s):
-                    if osp.exists(d):
-                        shutil.rmtree(d)
-                    shutil.copytree(s, d)
-                else:
-                    shutil.copy2(s, d)
+                robust_copytree(s, d) if osp.isdir(s) else shutil.copy2(s, d)
         # 2. Overwrite DIT and VAE with the latest trained weights
         work_dir = solver.cfg.WORK_DIR
         dit_dst_file = osp.join(output_path, "models", "dit", "ace_0.6b_512px.pth")
@@ -211,6 +219,17 @@ class FinalModelHFHook(Hook):
             solver.logger.info(f"Overwrote VAE with trained weights: {trained_vae_path}")
         else:
             solver.logger.warning(f"Trained VAE weights not found: {trained_vae_path}")
+        # Post-copy check: Ensure all files from original text_encoder dir are present
+        orig_text_enc = osp.join(local_model_root, "models", "text_encoder", "t5-v1_1-xxl")
+        dest_text_enc = osp.join(output_path, "models", "text_encoder", "t5-v1_1-xxl")
+        if osp.exists(orig_text_enc) and osp.exists(dest_text_enc):
+            orig_files = set(os.listdir(orig_text_enc))
+            dest_files = set(os.listdir(dest_text_enc))
+            missing = orig_files - dest_files
+            if missing:
+                solver.logger.warning(f"Missing files in exported text_encoder: {missing}")
+            else:
+                solver.logger.info(f"All files copied for text_encoder: {sorted(dest_files)}")
         solver.logger.info(f"Original model structure copied and updated weights saved to {output_path}")
 
     def list_remote_files(self, directory_path, solver):
