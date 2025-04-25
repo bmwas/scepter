@@ -163,68 +163,48 @@ class FinalModelHFHook(Hook):
         
     def _copy_original_and_update(self, solver, output_path):
         """
-        Copy the original Hugging Face model directory structure to output_path/models, then overwrite only the updated weights.
-        This version always copies all original model files (as specified in the config),
-        then overwrites DIT and VAE with the latest trained weights.
+        Copy the entire original Hugging Face model directory structure to output_path,
+        then overwrite only the updated weights (DIT and VAE) with the latest trained versions.
+        This guarantees the exported directory is a 1:1 match to the original except for updated weights.
         """
         import shutil
         import os
         import os.path as osp
-        import torch
 
-        models_dir = osp.join(output_path, "models")
-        os.makedirs(models_dir, exist_ok=True)
-
-        # --- 1. Copy all original model files/directories ---
-        cfg = solver.cfg.MODEL
-        dit_src = cfg.DIFFUSION_MODEL.PRETRAINED_MODEL  # usually a .pth file or HF URI
-        vae_src = cfg.FIRST_STAGE_MODEL.PRETRAINED_MODEL  # usually a .bin file or HF URI
-        text_encoder_src = cfg.COND_STAGE_MODEL.PRETRAINED_MODEL  # usually a directory or HF URI
-        tokenizer_src = cfg.COND_STAGE_MODEL.TOKENIZER_PATH  # usually a directory or HF URI
-
-        def copy_dir_or_file(src, dst):
-            if src.endswith(('.pth', '.bin')):
-                with FS.get_to_local_file(src) as local_file:
-                    os.makedirs(osp.dirname(dst), exist_ok=True)
-                    shutil.copy2(local_file, dst)
-            else:
-                with FS.get_dir_to_local_dir(src, wait_finish=True) as local_dir:
-                    if not osp.exists(dst):
-                        shutil.copytree(local_dir, dst)
-                    else:
-                        for item in os.listdir(local_dir):
-                            s = osp.join(local_dir, item)
-                            d = osp.join(dst, item)
-                            if osp.isdir(s):
-                                if not osp.exists(d):
-                                    shutil.copytree(s, d)
-                            else:
-                                shutil.copy2(s, d)
-        # Copy DIT
-        dit_dst_dir = osp.join(models_dir, "dit")
-        os.makedirs(dit_dst_dir, exist_ok=True)
-        copy_dir_or_file(osp.dirname(dit_src), dit_dst_dir)
-        # Copy VAE
-        vae_dst_dir = osp.join(models_dir, "vae")
-        os.makedirs(vae_dst_dir, exist_ok=True)
-        copy_dir_or_file(osp.dirname(vae_src), vae_dst_dir)
-        # Copy text_encoder
-        text_encoder_dst_dir = osp.join(models_dir, "text_encoder", "t5-v1_1-xxl")
-        os.makedirs(text_encoder_dst_dir, exist_ok=True)
-        copy_dir_or_file(text_encoder_src, text_encoder_dst_dir)
-        # Copy tokenizer
-        tokenizer_dst_dir = osp.join(models_dir, "tokenizer", "t5-v1_1-xxl")
-        os.makedirs(tokenizer_dst_dir, exist_ok=True)
-        copy_dir_or_file(tokenizer_src, tokenizer_dst_dir)
-
-        # --- 2. Overwrite DIT and VAE with the latest trained weights ---
-        # Use the correct WORK_DIR from config
+        # 1. Resolve the original model root directory (parent of 'models') from DIFFUSION_MODEL.PRETRAINED_MODEL
+        dit_src = solver.cfg.MODEL.DIFFUSION_MODEL.PRETRAINED_MODEL
+        # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/dit/ace_0.6b_512px.pth'
+        # We want the root: ...@ (or local equivalent) up to /models
+        # Use FS.get_dir_to_local_dir to fetch the full original directory
+        import re
+        dit_match = re.search(r'@(.+/models)/', dit_src)
+        if not dit_match:
+            raise RuntimeError(f"Could not determine original model root from DIT path: {dit_src}")
+        models_rel_path = dit_match.group(1)  # e.g., 'models'
+        # Remove everything after '@' to get the root dir
+        at_idx = dit_src.find('@')
+        if at_idx == -1:
+            raise RuntimeError(f"Could not find '@' in DIT path: {dit_src}")
+        model_root_uri = dit_src[:at_idx+1] + models_rel_path[:-7]  # up to and including '/'
+        # model_root_uri now points to the root dir containing /models
+        # Download/copy the entire model root dir to output_path
+        with FS.get_dir_to_local_dir(model_root_uri, wait_finish=True) as local_model_root:
+            # Copy everything under local_model_root to output_path
+            for item in os.listdir(local_model_root):
+                s = osp.join(local_model_root, item)
+                d = osp.join(output_path, item)
+                if osp.isdir(s):
+                    if osp.exists(d):
+                        shutil.rmtree(d)
+                    shutil.copytree(s, d)
+                else:
+                    shutil.copy2(s, d)
+        # 2. Overwrite DIT and VAE with the latest trained weights
         work_dir = solver.cfg.WORK_DIR
+        dit_dst_file = osp.join(output_path, "models", "dit", "ace_0.6b_512px.pth")
+        vae_dst_file = osp.join(output_path, "models", "vae", "vae.bin")
         trained_dit_path = osp.join(work_dir, "dit", "ace_0.6b_512px.pth")
         trained_vae_path = osp.join(work_dir, "vae", "vae.bin")
-        # Overwrite if the trained weights exist
-        dit_dst_file = osp.join(dit_dst_dir, "ace_0.6b_512px.pth")
-        vae_dst_file = osp.join(vae_dst_dir, "vae.bin")
         if osp.exists(trained_dit_path):
             shutil.copy2(trained_dit_path, dit_dst_file)
             solver.logger.info(f"Overwrote DIT with trained weights: {trained_dit_path}")
@@ -235,8 +215,7 @@ class FinalModelHFHook(Hook):
             solver.logger.info(f"Overwrote VAE with trained weights: {trained_vae_path}")
         else:
             solver.logger.warning(f"Trained VAE weights not found: {trained_vae_path}")
-        # Text encoder and tokenizer are not overwritten unless you train them as well
-        solver.logger.info(f"Original model copied and updated weights saved to {models_dir}")
+        solver.logger.info(f"Original model structure copied and updated weights saved to {output_path}")
 
     def list_remote_files(self, directory_path, solver):
         """Helper method to list files in a remote directory without using FS.list_dir()."""
