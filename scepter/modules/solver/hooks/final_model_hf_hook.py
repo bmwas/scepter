@@ -141,17 +141,9 @@ class FinalModelHFHook(Hook):
         try:
             solver.logger.info("Training complete. Saving final model with all components...")
             self._save_all_components(solver, is_final=True)
-            
-            # Push to Hugging Face Hub if configured
+            # Only push to Hugging Face Hub if configured, and do NOT log to wandb
             if self.push_to_hub and self.hub_model_id:
                 self._push_to_huggingface(solver)
-                
-            # Log to wandb if available
-            if self.wandb_run is not None:
-                self.wandb_run.summary["final_model_path"] = self.full_output_dir
-                if self.push_to_hub:
-                    self.wandb_run.summary["huggingface_model_id"] = self.hub_model_id
-                    
             solver.logger.info("FinalModelHFHook: Completed all tasks successfully.")
         except Exception as e:
             solver.logger.warning(f"Error in FinalModelHFHook.after_solve: {e}")
@@ -166,10 +158,7 @@ class FinalModelHFHook(Hook):
         
         # Use the new robust copy/update method
         self._copy_original_and_update(solver, output_path)
-        
-        # Optionally update README, config.yaml, etc. here if needed
-        # ...
-
+        # Do NOT log to wandb here; only export for HF
         solver.logger.info(f"Model export complete at {output_path}")
         
     def _copy_original_and_update(self, solver, output_path):
