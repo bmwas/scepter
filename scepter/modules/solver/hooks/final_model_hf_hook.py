@@ -164,23 +164,24 @@ class FinalModelHFHook(Hook):
     def _copy_original_and_update(self, solver, output_path):
         """
         Copy the original Hugging Face model directory structure to output_path/models, then overwrite only the updated weights.
+        This version always copies all original model files (as specified in the config),
+        then overwrites DIT and VAE with the latest trained weights.
         """
         import shutil
         import os
         import os.path as osp
         import torch
-        
-        # Always use /models as the root for all components
+
         models_dir = osp.join(output_path, "models")
         os.makedirs(models_dir, exist_ok=True)
-        
-        # 1. Parse original model paths from config
-        dit_src = solver.cfg.MODEL.DIFFUSION_MODEL.PRETRAINED_MODEL
-        vae_src = solver.cfg.MODEL.FIRST_STAGE_MODEL.PRETRAINED_MODEL
-        text_encoder_src = solver.cfg.MODEL.COND_STAGE_MODEL.PRETRAINED_MODEL
-        tokenizer_src = solver.cfg.MODEL.COND_STAGE_MODEL.TOKENIZER_PATH
-        
-        # Helper to copy directories or files
+
+        # --- 1. Copy all original model files/directories ---
+        cfg = solver.cfg.MODEL
+        dit_src = cfg.DIFFUSION_MODEL.PRETRAINED_MODEL  # usually a .pth file or HF URI
+        vae_src = cfg.FIRST_STAGE_MODEL.PRETRAINED_MODEL  # usually a .bin file or HF URI
+        text_encoder_src = cfg.COND_STAGE_MODEL.PRETRAINED_MODEL  # usually a directory or HF URI
+        tokenizer_src = cfg.COND_STAGE_MODEL.TOKENIZER_PATH  # usually a directory or HF URI
+
         def copy_dir_or_file(src, dst):
             if src.endswith(('.pth', '.bin')):
                 with FS.get_to_local_file(src) as local_file:
@@ -215,21 +216,25 @@ class FinalModelHFHook(Hook):
         tokenizer_dst_dir = osp.join(models_dir, "tokenizer", "t5-v1_1-xxl")
         os.makedirs(tokenizer_dst_dir, exist_ok=True)
         copy_dir_or_file(tokenizer_src, tokenizer_dst_dir)
-        
-        # 2. Overwrite only updated weights using correct model attributes
-        model = solver.model.module if hasattr(solver.model, 'module') else solver.model
-        # DIT (diffusion transformer)
-        dit_weights_path = osp.join(dit_dst_dir, "ace_0.6b_512px.pth")
-        torch.save(model.model.state_dict(), dit_weights_path)
-        # VAE
-        vae_weights_path = osp.join(vae_dst_dir, "vae.bin")
-        torch.save(model.first_stage_model.state_dict(), vae_weights_path)
-        # Text Encoder (if use_grad)
-        use_grad = getattr(model.cond_stage_model, 'use_grad', False)
-        if use_grad:
-            text_encoder_weights_path = osp.join(text_encoder_dst_dir, "pytorch_model.bin")
-            torch.save(model.cond_stage_model.state_dict(), text_encoder_weights_path)
-        # Tokenizer is never updated
+
+        # --- 2. Overwrite DIT and VAE with the latest trained weights ---
+        # Assume trained weights are saved in the solver's work dir under standard names
+        trained_dit_path = osp.join(solver.cfg.SOLVER.WORK_DIR, "dit", "ace_0.6b_512px.pth")
+        trained_vae_path = osp.join(solver.cfg.SOLVER.WORK_DIR, "vae", "vae.bin")
+        # Overwrite if the trained weights exist
+        dit_dst_file = osp.join(dit_dst_dir, "ace_0.6b_512px.pth")
+        vae_dst_file = osp.join(vae_dst_dir, "vae.bin")
+        if osp.exists(trained_dit_path):
+            shutil.copy2(trained_dit_path, dit_dst_file)
+            solver.logger.info(f"Overwrote DIT with trained weights: {trained_dit_path}")
+        else:
+            solver.logger.warning(f"Trained DIT weights not found: {trained_dit_path}")
+        if osp.exists(trained_vae_path):
+            shutil.copy2(trained_vae_path, vae_dst_file)
+            solver.logger.info(f"Overwrote VAE with trained weights: {trained_vae_path}")
+        else:
+            solver.logger.warning(f"Trained VAE weights not found: {trained_vae_path}")
+        # Text encoder and tokenizer are not overwritten unless you train them as well
         solver.logger.info(f"Original model copied and updated weights saved to {models_dir}")
 
     def list_remote_files(self, directory_path, solver):
