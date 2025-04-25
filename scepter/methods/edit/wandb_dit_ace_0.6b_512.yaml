@@ -172,21 +172,6 @@ SOLVER:
     - {NAME: BackwardHook,   PRIORITY: 0}
     - {NAME: LogHook,        LOG_INTERVAL: 50, PRIORITY: 100}
 
-    # ---------------- wandb initialiser ----------------
-    - {NAME: WandbLogHook,   PRIORITY: 100,                # must come before every other wandb‑hook
-      PROJECT_NAME: "scepter-project",                     # Match the default project name in BaseSolver
-      RUN_NAME: "ace_0.6b_512_final",
-      TAGS: [ACE, 0.6B],
-      SAVE_CODE: True}
-
-    # ---------------- wandb loss tracking ----------------
-    - {NAME: WandbLogHook,   PRIORITY: 101,                # must come before every other wandb‑hook
-      PROJECT_NAME: "scepter-project",                     # Match the default project name in BaseSolver
-      RUN_NAME: "ace_0.6b_512_final",
-      TAGS: [ACE, 0.6B],
-      SAVE_CODE: True,
-      LOG_INTERVAL: 1}
-    - {NAME: WandbDatasetArtifactHook, PRIORITY: 102}  # Log training/validation CSVs and workdir files
     # ---------------- checkpoints & metrics ----------------
     - {NAME: CheckpointHook, INTERVAL: 500, PRIORITY: 300,
       MAX_TO_KEEP: 2,
@@ -194,11 +179,6 @@ SOLVER:
       HUB_MODEL_ID: "Benson/ace-model-0.6b-512",
       HUB_PRIVATE: false,
       HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
-    - {NAME: WandbCheckpointHook, CHECKPOINT_INTERVAL: 100, SAVE_BEST: True,
-      SAVE_BEST_BY: "+loss", PRIORITY: 300,
-      ARTIFACT_MODEL_DIR: "models",
-      MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
-      STRUCTURED_ARTIFACTS: true}            # Enable structured artifacts with required subdirectories
     # ---------------- Complete model with all components ----------------
     - {NAME: FinalModelHFHook, PRIORITY: 1200,
       OUTPUT_DIR: "FINAL_MODEL_HF",
@@ -208,37 +188,5 @@ SOLVER:
       HUB_MODEL_ID: "Benson/ace-model-0.6b-512-complete",
       HUB_PRIVATE: false,
       HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
-    # ---------------- LR tracking ------------ 
-    - {NAME: WandbLrHook,         LOG_LR_SCHEDULE: True, PRIORITY: 200}     # :contentReference[oaicite:1]{index=1}
-    # Note: WandbValLossHook removed as it requires run_step_val method
-
     # ---------------- images / probe data -----------------
     - {NAME: ProbeDataHook,       PROB_INTERVAL: 100}                        # keeps local saves
-    - {NAME: WandbProbeDataHook,  PROB_INTERVAL: 100, LOG_IMAGES: True,
-      LOG_VIDEOS: True, PRIORITY: 1000}                                     # :contentReference[oaicite:3]{index=3}
-
-    # ---------------- file/artifact sweeper ---------------
-    - {NAME: WandbFileTrackerHook, TRACK_INTERVAL: 30, PRIORITY: 1100}       # :contentReference[oaicite:4]{index=4}
-
-    # ---------------- structured model artifact saving ---------------
-    - {NAME: WandbStructuredArtifactHook, CHECKPOINT_INTERVAL: 100, PRIORITY: 1200,
-      ARTIFACT_MODEL_DIR: "models",
-      MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
-      SAVE_FINAL: true}
-
-    # ParameterTrackerHook removed due to error: missing required 'param' argument
-
-    - NAME: WandbValLossHook
-      PRIORITY: 210
-      VAL_INTERVAL: 10
-      LOG_DETAILED_METRICS: True
-      CREATE_EVALUATION_TABLE: True
-      VAL_DATA:
-        NAME: CSVInRAMDataset
-        MODE: validation
-        CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/validation.csv
-        IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
-        BATCH_SIZE: 1
-        NUM_WORKERS: 1
-
-    - {NAME: WandbDatasetArtifactHook, PRIORITY: 150}
