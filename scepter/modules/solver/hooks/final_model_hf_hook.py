@@ -174,19 +174,14 @@ class FinalModelHFHook(Hook):
         # 1. Resolve the original model root directory (parent of 'models') from DIFFUSION_MODEL.PRETRAINED_MODEL
         dit_src = solver.cfg.MODEL.DIFFUSION_MODEL.PRETRAINED_MODEL
         # e.g., 'hf://scepter-studio/ACE-0.6B-512px@models/dit/ace_0.6b_512px.pth'
-        # We want the root: ...@ (or local equivalent) up to /models
-        # Use FS.get_dir_to_local_dir to fetch the full original directory
-        import re
-        dit_match = re.search(r'@(.+/models)/', dit_src)
-        if not dit_match:
-            raise RuntimeError(f"Could not determine original model root from DIT path: {dit_src}")
-        models_rel_path = dit_match.group(1)  # e.g., 'models'
-        # Remove everything after '@' to get the root dir
+        # Want to copy everything from the root up to and including '/models'
         at_idx = dit_src.find('@')
         if at_idx == -1:
             raise RuntimeError(f"Could not find '@' in DIT path: {dit_src}")
-        model_root_uri = dit_src[:at_idx+1] + models_rel_path[:-7]  # up to and including '/'
-        # model_root_uri now points to the root dir containing /models
+        models_idx = dit_src.find('/models', at_idx)
+        if models_idx == -1:
+            raise RuntimeError(f"Could not find '/models' in DIT path: {dit_src}")
+        model_root_uri = dit_src[:models_idx + len('/models')]
         # Download/copy the entire model root dir to output_path
         with FS.get_dir_to_local_dir(model_root_uri, wait_finish=True) as local_model_root:
             # Copy everything under local_model_root to output_path
