@@ -860,11 +860,12 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
     def _copy_to_local_for_upload(self, src_dir, dst_dir, solver):
         """Manually copy model components to a local directory for upload."""
         try:
-            # Create required subdirectories 
-            os.makedirs(osp.join(dst_dir, "dit"), exist_ok=True)
-            os.makedirs(osp.join(dst_dir, "vae"), exist_ok=True)
-            os.makedirs(osp.join(dst_dir, "text_encoder", "t5-v1_1-xxl"), exist_ok=True)
-            os.makedirs(osp.join(dst_dir, "tokenizer", "t5-v1_1-xxl"), exist_ok=True)
+            models_dir = osp.join(dst_dir, "models")
+            os.makedirs(models_dir, exist_ok=True)
+            os.makedirs(osp.join(models_dir, "dit"), exist_ok=True)
+            os.makedirs(osp.join(models_dir, "vae"), exist_ok=True)
+            os.makedirs(osp.join(models_dir, "text_encoder", "t5-v1_1-xxl"), exist_ok=True)
+            os.makedirs(osp.join(models_dir, "tokenizer", "t5-v1_1-xxl"), exist_ok=True)
             
             # Copy main files (README.md, config.yaml)
             readme_src = osp.join(src_dir, "README.md")
@@ -872,18 +873,18 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             
             # Copy README if it exists
             if FS.exists(readme_src):
-                readme_dst = osp.join(dst_dir, "README.md")
+                readme_dst = osp.join(models_dir, "README.md")
                 self._copy_file_for_upload(readme_src, readme_dst, solver)
             
             # Copy config if it exists
             if FS.exists(config_src):
-                config_dst = osp.join(dst_dir, "config.yaml")
+                config_dst = osp.join(models_dir, "config.yaml")
                 self._copy_file_for_upload(config_src, config_dst, solver)
             
             # Copy DIT model
             dit_src = osp.join(src_dir, "dit", "ace_0.6b_512px.pth")
             if FS.exists(dit_src):
-                dit_dst = osp.join(dst_dir, "dit", "ace_0.6b_512px.pth")
+                dit_dst = osp.join(models_dir, "dit", "ace_0.6b_512px.pth")
                 self._copy_file_for_upload(dit_src, dit_dst, solver)
             else:
                 solver.logger.warning(f"DIT model file not found: {dit_src}")
@@ -891,7 +892,7 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             # Copy VAE model
             vae_src = osp.join(src_dir, "vae", "vae.bin")
             if FS.exists(vae_src):
-                vae_dst = osp.join(dst_dir, "vae", "vae.bin") 
+                vae_dst = osp.join(models_dir, "vae", "vae.bin") 
                 self._copy_file_for_upload(vae_src, vae_dst, solver)
             else:
                 solver.logger.warning(f"VAE model file not found: {vae_src}")
@@ -911,7 +912,7 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             for filename in text_encoder_files:
                 src_file = osp.join(src_dir, "text_encoder", "t5-v1_1-xxl", filename)
                 if FS.exists(src_file):
-                    dst_file = osp.join(dst_dir, "text_encoder", "t5-v1_1-xxl", filename)
+                    dst_file = osp.join(models_dir, "text_encoder", "t5-v1_1-xxl", filename)
                     self._copy_file_for_upload(src_file, dst_file, solver)
                 else:
                     solver.logger.warning(f"Text encoder file not found: {src_file}")
@@ -927,7 +928,7 @@ Generated at: {time.strftime("%Y-%m-%d %H:%M:%S")}
             for filename in tokenizer_files:
                 src_file = osp.join(src_dir, "tokenizer", "t5-v1_1-xxl", filename)
                 if FS.exists(src_file):
-                    dst_file = osp.join(dst_dir, "tokenizer", "t5-v1_1-xxl", filename)
+                    dst_file = osp.join(models_dir, "tokenizer", "t5-v1_1-xxl", filename)
                     self._copy_file_for_upload(src_file, dst_file, solver)
                 else:
                     solver.logger.warning(f"Tokenizer file not found: {src_file}")
