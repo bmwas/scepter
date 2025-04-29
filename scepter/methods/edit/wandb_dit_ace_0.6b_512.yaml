@@ -124,6 +124,23 @@ SOLVER:
       LOSS_WEIGHT: 1.0
       LOSS_CLIP: 10.0
   #
+  TUNER:
+    NAME: SwiftLoRA
+    R: 64
+    LORA_ALPHA: 64
+    LORA_DROPOUT: 0.0
+    BIAS: "none"
+    TARGET_MODULES:
+      - "attn.q"
+      - "attn.k"
+      - "attn.v"
+      - "attn.o"
+      - "cross_attn.q"
+      - "cross_attn.k"
+      - "cross_attn.v"
+      - "cross_attn.o"
+
+  #
   SAMPLE_ARGS:
     SAMPLER: ddim
     SAMPLE_STEPS: 20
@@ -179,14 +196,33 @@ SOLVER:
       HUB_MODEL_ID: "Benson/ace-model-0.6b-512",
       HUB_PRIVATE: false,
       HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
+      
+    # ---------------- LoRA model saving hook ----------------
+    - {NAME: LoRACheckpointHook, INTERVAL: 500, PRIORITY: 350,
+      MAX_TO_KEEP: 2,
+      PUSH_TO_HUB: true,
+      HUB_MODEL_ID: "Benson/ace-model-0.6b-512-lora",
+      HUB_PRIVATE: false,
+      HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
+      
     # ---------------- Complete model with all components ----------------
     - {NAME: FinalModelHFHook, PRIORITY: 1200,
       OUTPUT_DIR: "FINAL_MODEL_HF",
-      SAVE_ON_STEPS: [500, 1000, 1500],  # Save at these specific steps
+      SAVE_ON_STEPS: [200],  # Save at these specific steps
       MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
       PUSH_TO_HUB: true,
       HUB_MODEL_ID: "Benson/ace-model-0.6b-512-complete",
       HUB_PRIVATE: false,
       HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
+      
+    # ---------------- Final LoRA model saving hook ----------------
+    - {NAME: FinalLoRAHFHook, PRIORITY: 1100,
+      OUTPUT_DIR: "FINAL_LORA_HF",
+      SAVE_ON_STEPS: [200],
+      PUSH_TO_HUB: true,
+      HUB_MODEL_ID: "Benson/ace-model-0.6b-512-lora-final",
+      HUB_PRIVATE: false,
+      HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
+      
     # ---------------- images / probe data -----------------
     - {NAME: ProbeDataHook,       PROB_INTERVAL: 100}                        # keeps local saves
