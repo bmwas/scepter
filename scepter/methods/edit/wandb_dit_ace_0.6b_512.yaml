@@ -46,6 +46,21 @@ SOLVER:
     SWA_FREQ: 10    # Average weights every 10 steps
     TEXT_IDENTIFIER: [ '{image}', '{image1}', '{image2}', '{image3}', '{image4}', '{image5}', '{image6}', '{image7}', '{image8}', '{image9}' ]
     USE_TEXT_POS_EMBEDDINGS: True
+    TUNER:
+      NAME: SwiftLoRA
+      R: 64
+      LORA_ALPHA: 64
+      LORA_DROPOUT: 0.0
+      BIAS: "none"
+      TARGET_MODULES:
+        - "attn.q"
+        - "attn.k"
+        - "attn.v"
+        - "attn.o"
+        - "cross_attn.q"
+        - "cross_attn.k"
+        - "cross_attn.v"
+        - "cross_attn.o"
     #
     DIFFUSION:
       NAME: BaseDiffusion
@@ -123,23 +138,6 @@ SOLVER:
       LOSS_TYPE: l2
       LOSS_WEIGHT: 1.0
       LOSS_CLIP: 10.0
-  #
-  TUNER:
-    NAME: SwiftLoRA
-    R: 64
-    LORA_ALPHA: 64
-    LORA_DROPOUT: 0.0
-    BIAS: "none"
-    TARGET_MODULES:
-      - "attn.q"
-      - "attn.k"
-      - "attn.v"
-      - "attn.o"
-      - "cross_attn.q"
-      - "cross_attn.k"
-      - "cross_attn.v"
-      - "cross_attn.o"
-
   #
   SAMPLE_ARGS:
     SAMPLER: ddim
