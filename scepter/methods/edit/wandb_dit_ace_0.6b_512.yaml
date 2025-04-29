@@ -11,11 +11,11 @@ SOLVER:
   USE_AMP: True
   DTYPE: float16
   CHANNELS_LAST: True
-  MAX_STEPS: 1500
+  MAX_STEPS: 200
   MAX_EPOCHS: -1
   NUM_FOLDS: 10
   ACCU_STEP: 1
-  EVAL_INTERVAL: 5
+  EVAL_INTERVAL: 10
   RESCALE_LR: False
   #
   WORK_DIR: ./cache/save_data/ace_0.6b_512
