@@ -195,14 +195,7 @@ SOLVER:
       PUSH_TO_HUB: false,
       HUB_MODEL_ID: "Benson/ace-model-0.6b-512",
       HUB_PRIVATE: false,
-      HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
-      
-    # ---------------- LoRA model saving hook ----------------
-    - {NAME: LoRACheckpointHook, INTERVAL: 500, PRIORITY: 350,
-      MAX_TO_KEEP: 2,
-      PUSH_TO_HUB: true,
-      HUB_MODEL_ID: "Benson/ace-model-0.6b-512-lora",
-      HUB_PRIVATE: false,
+      SAVE_LORA: true,
       HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
       
     # ---------------- Complete model with all components ----------------
@@ -215,10 +208,11 @@ SOLVER:
       HUB_PRIVATE: false,
       HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
       
-    # ---------------- Final LoRA model saving hook ----------------
-    - {NAME: FinalLoRAHFHook, PRIORITY: 1100,
+    # ---------------- LoRA model saving hook using standard hook ----------------
+    - {NAME: FinalModelHFHook, PRIORITY: 1100,
       OUTPUT_DIR: "FINAL_LORA_HF",
       SAVE_ON_STEPS: [200],
+      SAVE_LORA_ONLY: true,
       PUSH_TO_HUB: true,
       HUB_MODEL_ID: "Benson/ace-model-0.6b-512-lora-final",
       HUB_PRIVATE: false,
