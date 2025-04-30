@@ -102,8 +102,8 @@ class LoRAWandbVizHook(Hook):
                 try:
                     with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16):
                         # Call the model's forward_test method directly, providing required lists with matching length
-                        self.logger.info(f"✅ LoRAWandbVizHook: Calling model directly with prompt: [[{prompt_text}]], src_image_list: [None], src_mask_list: [None]")
-                        output = solver.model(prompt=[[prompt_text]], src_image_list=[None], src_mask_list=[None])
+                        self.logger.info(f"✅ LoRAWandbVizHook: Calling model directly with prompt: [[{prompt_text}]], src_image_list: [[None]], src_mask_list: [[None]]")
+                        output = solver.model(prompt=[[prompt_text]], src_image_list=[[None]], src_mask_list=[[None]])
                         
                         # Check if output contains an image tensor
                         if hasattr(output, 'images') and output.images is not None and len(output.images) > 0:
@@ -124,8 +124,8 @@ class LoRAWandbVizHook(Hook):
                         # Create minimal data including required lists with matching length for ACE model
                         batch_data = {
                             'prompt': [[prompt_text]],  # Ensure nested list for prompt
-                            'src_image_list': [None],
-                            'src_mask_list': [None]
+                            'src_image_list': [[None]],
+                            'src_mask_list': [[None]]
                         }
                         self.logger.info(f"✅ LoRAWandbVizHook: Fallback batch_data: {batch_data}")
                         
