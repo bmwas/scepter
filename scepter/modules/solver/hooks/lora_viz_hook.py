@@ -179,6 +179,20 @@ class LoRAWandbVizHook(Hook):
                         'seed': 42,  # Fixed seed for reproducibility
                     })
                     
+                    # Create a dummy image tensor required by ACE model
+                    # ACE model expects 'image' to be a list of tensors
+                    if isinstance(self.image_size, list):
+                        h, w = self.image_size
+                    else:
+                        h = w = self.image_size
+                    # Create a batch size of 1 tensor (same batch size as our prompt)
+                    dummy_image = torch.zeros(3, h, w, device='cuda')  # [C, H, W] without batch dimension
+                    batch_data['image'] = [dummy_image]  # Wrap in list as model expects a list of images
+                    
+                    # Also provide image_mask parameter (all ones = no masking)
+                    dummy_mask = torch.ones(1, h, w, device='cuda')  # [1, H, W] mask
+                    batch_data['image_mask'] = [dummy_mask]  # Also as a list
+                    
                     # Log what we're doing
                     solver.logger.info(f"🧠 LoRAWandbVizHook: Running inference with keys: {list(batch_data.keys())}")
                     
