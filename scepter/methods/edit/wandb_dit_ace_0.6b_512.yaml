@@ -230,13 +230,14 @@ SOLVER:
       
     # ---------------- File tracking and documentation ----------------
     - {NAME: WandbFileTrackerHook, PRIORITY: 400,
-      TRACK_INTERVAL: 300,     # Check for new files every 5 minutes
+      TRACK_INTERVAL: 50,     # More frequent checks (was 300)
+      TRACK_ON_START: true,   # Added to ensure tracking at beginning of training
       WATCHED_DIRECTORIES: [
         "./cache/save_data",   # Main save directory
-        "./cache/datasets/therapy_pair/images_child",  # CSV files directory
+        "./cache/datasets/therapy_pair/images_therapist",  # Updated CSV directory
       ],
       SPECIFIC_FILES: [
-        "./scepter/methods/edit/wandb_dit_ace_0.6b_512.yaml"  # Configuration file
+        "/home/bensonmwangi/Downloads/scepter/scepter/methods/edit/wandb_dit_ace_0.6b_512.yaml"  # Using absolute path
       ],
       FILE_EXTENSIONS: [
         ".csv", ".yaml", ".yml", ".json", ".txt",  # Data and config files
