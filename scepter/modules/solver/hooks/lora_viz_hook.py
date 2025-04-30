@@ -105,8 +105,8 @@ class LoRAWandbVizHook(Hook):
                         blank_image = torch.zeros(3, self.image_size, self.image_size)
                         
                         # Call the model's forward_test method directly, providing required lists with matching length
-                        self.logger.info(f"✅ LoRAWandbVizHook: Calling model directly with prompt: [[{prompt_text}]], src_image_list: [[None]], src_mask_list: [[None]], image=[{blank_image.shape}], image_mask=[None]")
-                        output = solver.model(prompt=[[prompt_text]], src_image_list=[[None]], src_mask_list=[[None]], image=[blank_image], image_mask=[None])
+                        self.logger.info(f"✅ LoRAWandbVizHook: Calling model directly with prompt: [[{prompt_text}]], src_image_list: [[Tensor]], src_mask_list: [[None]], image=[{blank_image.shape}], image_mask=[None]")
+                        output = solver.model(prompt=[[prompt_text]], src_image_list=[[blank_image]], src_mask_list=[[None]], image=[blank_image], image_mask=[None])
                         
                         # Check if output contains an image tensor
                         if hasattr(output, 'images') and output.images is not None and len(output.images) > 0:
@@ -127,7 +127,7 @@ class LoRAWandbVizHook(Hook):
                         # Create minimal data including required lists with matching length for ACE model
                         batch_data = {
                             'prompt': [[prompt_text]],  # Ensure nested list for prompt
-                            'src_image_list': [[None]],
+                            'src_image_list': [[torch.zeros(3, self.image_size, self.image_size)]],
                             'src_mask_list': [[None]],
                             'image': [torch.zeros(3, self.image_size, self.image_size)],  # Provide dummy blank image
                             'image_mask': [None]  # Provide dummy image mask
