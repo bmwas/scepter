@@ -205,8 +205,8 @@ class FinalModelHFHook(Hook):
                 robust_copytree(s, d) if osp.isdir(s) else shutil.copy2(s, d)
         # 2. Overwrite DIT and VAE with the latest trained weights
         work_dir = solver.cfg.WORK_DIR
-        dit_dst_file = osp.join(output_path, "models", "dit", "ace_0.6b_512px.pth")
-        vae_dst_file = osp.join(output_path, "models", "vae", "vae.bin")
+        dit_dst_file = osp.join(output_path, "dit", "ace_0.6b_512px.pth")
+        vae_dst_file = osp.join(output_path, "vae", "vae.bin")
         trained_dit_path = osp.join(work_dir, "dit", "ace_0.6b_512px.pth")
         trained_vae_path = osp.join(work_dir, "vae", "vae.bin")
         if osp.exists(trained_dit_path):
@@ -220,8 +220,8 @@ class FinalModelHFHook(Hook):
         else:
             solver.logger.warning(f"Trained VAE weights not found: {trained_vae_path}")
         # Post-copy check: Ensure all files from original text_encoder dir are present
-        orig_text_enc = osp.join(local_model_root, "models", "text_encoder", "t5-v1_1-xxl")
-        dest_text_enc = osp.join(output_path, "models", "text_encoder", "t5-v1_1-xxl")
+        orig_text_enc = osp.join(local_model_root, "text_encoder", "t5-v1_1-xxl")
+        dest_text_enc = osp.join(output_path, "text_encoder", "t5-v1_1-xxl")
         if osp.exists(orig_text_enc) and osp.exists(dest_text_enc):
             orig_files = set(os.listdir(orig_text_enc))
             dest_files = set(os.listdir(dest_text_enc))
