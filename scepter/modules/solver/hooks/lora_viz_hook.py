@@ -81,32 +81,36 @@ class LoRAWandbVizHook(Hook):
             solver.model.eval()
             self.logger.info(f"🔄 LoRAWandbVizHook: Set solver to eval mode (was training: {was_training})")
 
-            # Get validation prompts
-            prompts_to_use = [
-                "Draw a house with a pointy roof.",
-                "Draw a simple mountain landscape.",
-                "Draw a butterfly with detailed wings."
-            ]
-            num_prompts = len(prompts_to_use)
-            self.logger.info(f"📝 LoRAWandbVizHook: Using {num_prompts} prompts for visualization.")
+            # Load validation samples from VAL_DATA config
+            self.val_samples = self._load_validation_data(solver)
+            samples_to_use = self.val_samples[:self.num_val_samples]
+            num_prompts = len(samples_to_use)
+            self.logger.info(f"📝 LoRAWandbVizHook: Using {num_prompts} validation samples for visualization.")
 
             log_data = {}
             successful_images = 0
 
-            for i, prompt_text in enumerate(prompts_to_use):
-                self.logger.info(f"🖼️ LoRAWandbVizHook: Processing prompt {i+1}/{num_prompts}")
+            for i, sample in enumerate(samples_to_use):
+                # Extract sample data and move to device
+                prompt_text = sample['prompt']
+                src = sample['source_img'].cuda(non_blocking=True)
+                img = sample['image'].cuda(non_blocking=True)
+                msk = sample['mask'].cuda(non_blocking=True)
+                self.logger.info(f"🖼️ LoRAWandbVizHook: Processing sample {i+1}/{num_prompts}")
                 self.logger.info(f"📝 LoRAWandbVizHook: Using prompt: '{prompt_text}'")
                 
                 output = None
                 # Try direct model call first (simplest)
                 try:
                     with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16):
-                        # Create blank image tensor per prompt
-                        blank_image = torch.zeros(3, self.image_size, self.image_size)
-                        
-                        # Call the model's forward_test method directly, providing required lists with matching length
-                        self.logger.info(f"✅ LoRAWandbVizHook: Calling model directly with prompt: [[{prompt_text}]], src_image_list: [[Tensor]], src_mask_list: [[None]], image=[{blank_image.shape}], image_mask=[None]")
-                        output = solver.model(prompt=[[prompt_text]], src_image_list=[[blank_image]], src_mask_list=[[None]], image=[blank_image], image_mask=[None])
+                        self.logger.info(f"✅ LoRAWandbVizHook: Calling model with real sample: prompt=[[{prompt_text}]], src_image_list=[[Tensor]], src_mask_list=[[Tensor]], image=[Tensor], image_mask=[Tensor]")
+                        output = solver.model(
+                            prompt=[[prompt_text]],
+                            src_image_list=[[src]],
+                            src_mask_list=[[msk]],
+                            image=[img],
+                            image_mask=[msk]
+                        )
                         
                         # Check if output contains an image tensor
                         if hasattr(output, 'images') and output.images is not None and len(output.images) > 0:
@@ -119,22 +123,17 @@ class LoRAWandbVizHook(Hook):
                     self.logger.error(traceback.format_exc())
                     output = None # Ensure output is None on error
 
-                # If direct call failed, try fallback with run_step_test
+                # If direct call failed, try fallback with run_step_test using real data
                 if output is None:
                     try:
                         self.logger.info(f"📝 LoRAWandbVizHook: Trying fallback with run_step_test")
-                        
-                        # Create minimal data including required lists with matching length for ACE model
                         batch_data = {
-                            'prompt': [[prompt_text]],  # Ensure nested list for prompt
-                            'src_image_list': [[torch.zeros(3, self.image_size, self.image_size)]],
-                            'src_mask_list': [[None]],
-                            'image': [torch.zeros(3, self.image_size, self.image_size)],  # Provide dummy blank image
-                            'image_mask': [None]  # Provide dummy image mask
+                            'prompt': [[prompt_text]],
+                            'src_image_list': [[src]],
+                            'src_mask_list': [[msk]],
+                            'image': [img],
+                            'image_mask': [msk]
                         }
-                        self.logger.info(f"✅ LoRAWandbVizHook: Fallback batch_data: {batch_data}")
-                        
-                        # Run inference
                         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16):
                             outputs = solver.run_step_test(batch_data)
                         self.logger.info(f"✅ LoRAWandbVizHook: Got output from run_step_test, type: {type(outputs)}")
