@@ -42,15 +42,15 @@ SOLVER:
     EMA_DECAY: 0.9999
     EVAL_EMA: True
     USE_SWA: True  # Enable Stochastic Weight Averaging for extreme stability
-    SWA_START: 100  # Start SWA after 100 steps
-    SWA_FREQ: 10    # Average weights every 10 steps
+    SWA_START: 300  # Increased from 100 to delay averaging
+    SWA_FREQ: 20    # Reduced frequency for less smoothing early on
     TEXT_IDENTIFIER: [ '{image}', '{image1}', '{image2}', '{image3}', '{image4}', '{image5}', '{image6}', '{image7}', '{image8}', '{image9}' ]
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
       R: 128
-      LORA_ALPHA: 128
-      LORA_DROPOUT: 0.1
+      LORA_ALPHA: 256  # Increased from 128 to amplify gradient signals
+      LORA_DROPOUT: 0.05  # Reduced from 0.1 to prevent too much regularization early
       BIAS: "none"
       TARGET_MODULES:
         - "attn.q"
@@ -65,7 +65,7 @@ SOLVER:
     DIFFUSION:
       NAME: BaseDiffusion
       PREDICTION_TYPE: eps
-      MIN_SNR_GAMMA: 5.0  # Add SNR clamping for better stability
+      MIN_SNR_GAMMA: 1.0  # Reduced from 5.0 to prevent excessive gradient suppression
       NOISE_SCHEDULER:
         NAME: LinearScheduler
         NUM_TIMESTEPS: 1000
@@ -147,7 +147,7 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 5e-5
+    LEARNING_RATE: 1e-4  # Increased from 5e-5 for faster initial convergence
     EPS: 1e-6
     WEIGHT_DECAY: 1e-6
     CLIP_GRAD_NORM: 1.0
@@ -158,7 +158,7 @@ SOLVER:
     NAME: CosineAnnealingLR
     T_MAX: 3000
     ETA_MIN: 1e-7
-    WARMUP_STEPS: 150
+    WARMUP_STEPS: 50  # Reduced from 150 for earlier full learning rate
 
   #
   TRAIN_DATA:
