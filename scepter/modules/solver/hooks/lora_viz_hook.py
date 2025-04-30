@@ -139,40 +139,74 @@ class LoRAWandbVizHook(Hook):
                     # Transfer the batch data to CUDA and prepare it for the model
                     batch_list = transfer_data_to_cuda([batch_data])
                     
-                    # Run inference using solver.run_step_test
+                    # Run inference using solver.run_step_test without any special parameters
                     with torch.no_grad():
-                        with torch.autocast("cuda"):
-                            try:
-                                result = solver.run_step_test(batch_list, return_output=True)
-                                self.logger.info(f"✅ LoRAWandbVizHook: Result keys: {result.keys() if isinstance(result, dict) else 'Not a dict'}")
-                            except Exception as e:
-                                self.logger.error(f"❌ LoRAWandbVizHook: Run step test failed: {str(e)}")
-                                self.logger.error(traceback.format_exc())
-                                continue
+                        try:
+                            # Call run_step_test with simple batch list
+                            results = solver.run_step_test(batch_list)
+                            self.logger.info(f"✅ LoRAWandbVizHook: Results type: {type(results)}, length: {len(results) if isinstance(results, list) else 'N/A'}")
+                        except Exception as e:
+                            self.logger.error(f"❌ LoRAWandbVizHook: Run step test failed: {str(e)}")
+                            self.logger.error(traceback.format_exc())
+                            continue
                     
-                    # Check for valid output - try different possible output key names
+                    # Extract output from the results
                     output_image = None
-                    possible_keys = ['image', 'images', 'gen_imgs', 'generated_images', 'output']
                     
-                    for key in possible_keys:
-                        if key in result and result[key] is not None:
-                            if isinstance(result[key], list) and len(result[key]) > 0:
-                                output_image = result[key][0]
-                                self.logger.info(f"✅ LoRAWandbVizHook: Found image in result['{key}']")
-                                break
-                            elif isinstance(result[key], torch.Tensor):
-                                output_image = result[key]
-                                self.logger.info(f"✅ LoRAWandbVizHook: Found tensor in result['{key}']")
-                                break
+                    if isinstance(results, list) and len(results) > 0:
+                        # Inspect the first result which should contain our generated image
+                        result = results[0]
+                        
+                        # Log all available keys for debugging
+                        if isinstance(result, dict):
+                            self.logger.info(f"✅ LoRAWandbVizHook: Result keys: {list(result.keys())}")
+                            
+                            # Common keys where the output image might be found
+                            for key in ['image', 'images', 'samples', 'pred', 'output']:
+                                if key in result:
+                                    value = result[key]
+                                    self.logger.info(f"✅ LoRAWandbVizHook: Found key '{key}' with type: {type(value)}")
+                                    
+                                    # Handle different formats
+                                    if isinstance(value, torch.Tensor):
+                                        if len(value.shape) == 4:  # [batch, channels, height, width]
+                                            output_image = value[0]  # Take first image
+                                        elif len(value.shape) == 3:  # [channels, height, width]
+                                            output_image = value
+                                        break
+                                    elif isinstance(value, list) and len(value) > 0:
+                                        if isinstance(value[0], torch.Tensor):
+                                            output_image = value[0]
+                                            break
                     
                     # Check if we have a valid output image
                     if output_image is not None:
-                        # Get the image from the result
-                        generated_img = output_image
+                        # Get the shape for debugging
+                        self.logger.info(f"✅ LoRAWandbVizHook: Output image shape: {output_image.shape}")
+                        
+                        # Make sure it's the right format (C,H,W)
+                        if len(output_image.shape) != 3 or output_image.shape[0] not in [1, 3, 4]:
+                            self.logger.error(f"❌ LoRAWandbVizHook: Unexpected image shape: {output_image.shape}")
+                            continue
+                        
+                        # Handle normalization - ensure it's in range [0,1]
+                        if output_image.max() > 1.5:  # Likely [-1,1] or [0,255]
+                            if output_image.min() < 0:
+                                self.logger.info("✅ LoRAWandbVizHook: Normalizing from [-1,1] to [0,1]")
+                                output_image = (output_image + 1) / 2.0
+                            else:
+                                self.logger.info("✅ LoRAWandbVizHook: Normalizing from [0,255] to [0,1]")
+                                output_image = output_image / 255.0
                         
                         # Convert to numpy for logging
-                        gen_np = generated_img.permute(1, 2, 0).cpu().numpy()
-                        gen_np = (gen_np * 255).astype(np.uint8)
+                        gen_np = output_image.permute(1, 2, 0).cpu().numpy()
+                        
+                        # Ensure we have values in [0,255] range for uint8
+                        gen_np = (gen_np * 255).clip(0, 255).astype(np.uint8)
+                        
+                        # If single channel, convert to RGB
+                        if gen_np.shape[2] == 1:
+                            gen_np = np.repeat(gen_np, 3, axis=2)
                         
                         # Convert source and target tensors to numpy for wandb
                         src_np = sample['source_img'].permute(1, 2, 0).cpu().numpy()
@@ -243,10 +277,39 @@ class LoRAWandbVizHook(Hook):
         if self.csv_path is None:
             # Try to get paths from solver config
             try:
-                if hasattr(solver, 'cfg') and hasattr(solver.cfg, 'DATA') and hasattr(solver.cfg.DATA, 'VAL_DATA'):
-                    val_cfg = solver.cfg.DATA.VAL_DATA
-                    self.csv_path = val_cfg.get('CSV_PATH', './cache/datasets/therapy_pair/images_therapist/validation.csv')
-                    self.image_root_dir = val_cfg.get('IMAGE_ROOT_DIR', './cache/datasets/therapy_pair')
+                # Log the solver config structure for debugging
+                self.logger.info(f"📊 LoRAWandbVizHook: Solver config: {dir(solver)}")
+                if hasattr(solver, 'cfg'):
+                    self.logger.info(f"📊 LoRAWandbVizHook: Solver cfg: {dir(solver.cfg)}")
+                
+                # Try several potential paths to find the validation data config
+                if hasattr(solver, 'cfg'):
+                    # The YAML shows VAL_DATA at top level, so try that first
+                    if hasattr(solver.cfg, 'VAL_DATA'):
+                        val_cfg = solver.cfg.VAL_DATA
+                        self.csv_path = val_cfg.get('CSV_PATH')
+                        self.image_root_dir = val_cfg.get('IMAGE_ROOT_DIR')
+                        self.logger.info(f"📊 LoRAWandbVizHook: Found config at solver.cfg.VAL_DATA")
+                    # Also try DATA.VAL_DATA as seen in some other parts of the code
+                    elif hasattr(solver.cfg, 'DATA') and hasattr(solver.cfg.DATA, 'VAL_DATA'):
+                        val_cfg = solver.cfg.DATA.VAL_DATA
+                        self.csv_path = val_cfg.get('CSV_PATH')
+                        self.image_root_dir = val_cfg.get('IMAGE_ROOT_DIR')
+                        self.logger.info(f"📊 LoRAWandbVizHook: Found config at solver.cfg.DATA.VAL_DATA")
+                    # Try dictionary-style access as a fallback
+                    elif 'VAL_DATA' in solver.cfg:
+                        val_cfg = solver.cfg['VAL_DATA']
+                        self.csv_path = val_cfg.get('CSV_PATH')
+                        self.image_root_dir = val_cfg.get('IMAGE_ROOT_DIR')
+                        self.logger.info(f"📊 LoRAWandbVizHook: Found config at solver.cfg['VAL_DATA']")
+                    elif 'DATA' in solver.cfg and 'VAL_DATA' in solver.cfg['DATA']:
+                        val_cfg = solver.cfg['DATA']['VAL_DATA']
+                        self.csv_path = val_cfg.get('CSV_PATH')
+                        self.image_root_dir = val_cfg.get('IMAGE_ROOT_DIR')
+                        self.logger.info(f"📊 LoRAWandbVizHook: Found config at solver.cfg['DATA']['VAL_DATA']")
+                
+                # If we found a path, log it
+                if self.csv_path:
                     self.logger.info(f"📊 LoRAWandbVizHook: Using validation CSV: {self.csv_path}")
                     self.logger.info(f"📊 LoRAWandbVizHook: Using image root dir: {self.image_root_dir}")
                 else:
@@ -260,15 +323,39 @@ class LoRAWandbVizHook(Hook):
                 self.csv_path = './cache/datasets/therapy_pair/images_therapist/validation.csv'
                 self.image_root_dir = './cache/datasets/therapy_pair'
         
-        if not os.path.exists(self.csv_path):
-            self.logger.error(f"❌ LoRAWandbVizHook: CSV file not found: {self.csv_path}")
-            return []
-        
         val_data = []
         try:
-            # Use pandas to read the CSV file, matching CSVInRAMDataset approach
-            self.logger.info(f"📊 LoRAWandbVizHook: Reading CSV with pandas: {self.csv_path}")
-            df = pd.read_csv(self.csv_path)
+            # Check if file exists
+            if not os.path.exists(self.csv_path):
+                self.logger.error(f"❌ LoRAWandbVizHook: CSV file not found: {self.csv_path}")
+                # Try to find the file in common locations
+                possible_paths = [
+                    os.path.join(os.getcwd(), 'validation.csv'),
+                    os.path.join(os.getcwd(), 'data', 'validation.csv'),
+                    os.path.join(os.getcwd(), 'datasets', 'validation.csv'),
+                    './cache/datasets/therapy_pair/images_therapist/validation.csv',
+                ]
+                
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        self.csv_path = path
+                        self.logger.info(f"📊 LoRAWandbVizHook: Found CSV at: {path}")
+                        break
+                
+                # If still not found, use hardcoded samples
+                if not os.path.exists(self.csv_path):
+                    self.logger.warning(f"⚠️ LoRAWandbVizHook: Falling back to hardcoded samples")
+                    return self._create_hardcoded_samples()
+            
+            # Try different loading approaches
+            try:
+                # First try pandas
+                self.logger.info(f"📊 LoRAWandbVizHook: Reading CSV with pandas: {self.csv_path}")
+                df = pd.read_csv(self.csv_path)
+            except Exception as e:
+                self.logger.error(f"❌ LoRAWandbVizHook: Error reading CSV with pandas: {str(e)}")
+                self.logger.error(traceback.format_exc())
+                return self._create_hardcoded_samples()
             
             # Log the columns for debugging
             self.logger.info(f"📊 LoRAWandbVizHook: CSV columns: {df.columns.tolist()}")
@@ -278,7 +365,7 @@ class LoRAWandbVizHook(Hook):
             missing_columns = [col for col in required_columns if col not in df.columns]
             if missing_columns:
                 self.logger.error(f"❌ LoRAWandbVizHook: Missing required columns in CSV: {missing_columns}")
-                return []
+                return self._create_hardcoded_samples()
                 
             # Target column is optional
             target_col = 'Target:FILE' if 'Target:FILE' in df.columns else None
@@ -327,9 +414,47 @@ class LoRAWandbVizHook(Hook):
         except Exception as e:
             self.logger.error(f"❌ LoRAWandbVizHook: Error reading CSV: {str(e)}")
             self.logger.error(traceback.format_exc())
+            return self._create_hardcoded_samples()
         
         self.logger.info(f"📊 LoRAWandbVizHook: Loaded {len(val_data)} validation samples")
+        
+        # If no data was loaded, fall back to hardcoded samples
+        if len(val_data) == 0:
+            self.logger.warning(f"⚠️ LoRAWandbVizHook: No validation samples loaded, using hardcoded samples")
+            return self._create_hardcoded_samples()
+        
         return val_data
+    
+    def _create_hardcoded_samples(self):
+        """
+        Create hardcoded samples as a fallback when CSV loading fails
+        """
+        self.logger.info(f"📊 LoRAWandbVizHook: Creating hardcoded samples")
+        
+        # Create blank tensors of different sizes for variety
+        hardcoded_samples = []
+        prompts = [
+            "Draw a big house with a pointy roof in a scribble style",
+            "Draw a simple house with a doodle",
+            "Draw a scribble of a mountain with a long slope"
+        ]
+        
+        for i, prompt in enumerate(prompts):
+            # Create a blank tensor
+            size = 512
+            blank_tensor = torch.zeros(3, size, size)
+            mask_tensor = torch.ones(1, size, size)
+            
+            hardcoded_samples.append({
+                'prompt': prompt,
+                'source_img': blank_tensor.clone(),
+                'target_img': blank_tensor.clone(),
+                'image': blank_tensor,
+                'mask': mask_tensor
+            })
+        
+        self.logger.info(f"📊 LoRAWandbVizHook: Created {len(hardcoded_samples)} hardcoded samples")
+        return hardcoded_samples
 
 def get_config_template():
     return dict_to_yaml({
