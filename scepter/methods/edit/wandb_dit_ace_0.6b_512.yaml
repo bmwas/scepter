@@ -39,8 +39,8 @@ SOLVER:
     DECODER_BIAS: 0.5
     DEFAULT_N_PROMPT:
     USE_EMA: True
-    EMA_DECAY: 0.9999
-    EVAL_EMA: True
+    EMA_DECAY: 0.99
+    EVAL_EMA: False
     USE_SWA: True  # Enable Stochastic Weight Averaging for extreme stability
     SWA_START: 300  # Increased from 100 to delay averaging
     SWA_FREQ: 20    # Reduced frequency for less smoothing early on
