@@ -14,7 +14,7 @@ from scepter.modules.solver.hooks.registry import HOOKS
 from scepter.modules.utils.distribute import we
 from scepter.modules.utils.file_system import FS
 from scepter.modules.model.registry import MODELS
-from scepter.modules.utils.general import transfer_data_to_cuda
+from scepter.modules.utils.data import transfer_data_to_cuda
 
 try:
     import wandb
