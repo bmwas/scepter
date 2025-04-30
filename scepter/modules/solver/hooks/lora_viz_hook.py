@@ -176,6 +176,7 @@ class LoRAWandbVizHook(Hook):
                             # Log the image
                             sample_data = {
                                 f"lora_sample_{i+1}/generated": wandb.Image(gen_np, caption="Generated"),
+                                f"lora_sample_{i+1}/target": wandb.Image(sample['image'].permute(1, 2, 0).cpu().numpy() * 255, caption="Target (Ground Truth)"),
                                 f"lora_sample_{i+1}/prompt": prompt_text
                             }
                             log_data.update(sample_data)
@@ -199,6 +200,7 @@ class LoRAWandbVizHook(Hook):
                     # Log the image
                     sample_data = {
                         f"lora_sample_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
+                        f"lora_sample_{i+1}/target": wandb.Image(sample['image'].permute(1, 2, 0).cpu().numpy() * 255, caption=f"Target (Ground Truth)"),
                         f"lora_sample_{i+1}/prompt": prompt_text
                     }
                     log_data.update(sample_data)
@@ -210,10 +212,15 @@ class LoRAWandbVizHook(Hook):
             # Log all collected images to wandb
             if successful_images > 0:
                 if self.log_prompts and len(prompt_list) > 0:
-                    columns = ["sample_idx", "prompt", "source_image", "generated_image"]
+                    columns = ["sample_idx", "prompt", "source_image", "target_image", "generated_image"]
                     wandb_table = wandb.Table(columns=columns)
                     
-                    for i, (prompt, src_img, gen_img) in enumerate(zip(prompt_list, [sample['source_img'] for sample in samples_to_use], [log_data[f"lora_sample_{i+1}/generated"] for i in range(len(prompt_list))])):
+                    for i, (prompt, src_img, tgt_img, gen_img) in enumerate(zip(
+                        prompt_list, 
+                        [sample['source_img'] for sample in samples_to_use], 
+                        [sample['image'] for sample in samples_to_use],
+                        [log_data[f"lora_sample_{i+1}/generated"] for i in range(len(prompt_list))]
+                    )):
                         # Add row to wandb table
                         if isinstance(prompt, list) and len(prompt) > 0:
                             # Handle nested prompts (common in the ACE model format)
@@ -225,6 +232,7 @@ class LoRAWandbVizHook(Hook):
                             i, 
                             actual_prompt, 
                             wandb.Image(src_img), 
+                            wandb.Image(tgt_img.permute(1, 2, 0).cpu().numpy() * 255),
                             wandb.Image(gen_img)
                         )
                         
@@ -235,6 +243,41 @@ class LoRAWandbVizHook(Hook):
                 
                 wandb.log(log_data)
                 self.logger.info(f"✅ LoRAWandbVizHook: Logged {successful_images}/{num_prompts} images to wandb at step {solver.iter}")
+                
+                # Create grid visualization with source, target, and generated images
+                try:
+                    # Extract images for grid
+                    source_images = [np.array(sample['source_img'] * 255, dtype=np.uint8) for sample in samples_to_use[:successful_images]]
+                    target_images = [np.array(sample['image'].permute(1, 2, 0).cpu().numpy() * 255, dtype=np.uint8) for sample in samples_to_use[:successful_images]]
+                    generated_images = [np.array(log_data[f"lora_sample_{i+1}/generated"].image_data, dtype=np.uint8) for i in range(successful_images)]
+                    
+                    # Create a grid with source, target, and generated images side-by-side
+                    image_rows = []
+                    for src_img, tgt_img, gen_img in zip(source_images, target_images, generated_images):
+                        # Ensure all images are same dimensions for horizontal stacking
+                        src_img = src_img.astype(np.uint8)
+                        tgt_img = tgt_img.astype(np.uint8)
+                        gen_img = gen_img.astype(np.uint8)
+                        
+                        # Stack source, target, and generated images side by side
+                        combined = np.hstack((src_img, tgt_img, gen_img))
+                        image_rows.append(combined)
+                        
+                    # Create vertical grid if we have images
+                    if len(image_rows) > 0:
+                        try:
+                            grid = np.vstack(image_rows)
+                            wandb.log({
+                                "lora_samples_grid": wandb.Image(
+                                    grid, 
+                                    caption="Source (Input) | Target (Ground Truth) | Generated (Prediction)"
+                                )
+                            })
+                        except Exception as grid_e:
+                            self.logger.warning(f"⚠️ Error creating image grid: {grid_e}")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Could not create image grid: {e}")
+                
                 # Restore original mode outside the loop after all prompts are processed
                 if was_training:
                     solver.model.train()
