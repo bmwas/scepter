@@ -303,13 +303,10 @@ class LoRAWandbVizHook(Hook):
 
     def _log_original_validation_samples(self, samples, step=0):
         """Log the original validation samples to wandb (before any prediction)."""
-        if wandb.run is None:
-            return
-
         if len(samples) == 0:
             return
 
-        # Create a folder to store validation samples with original filenames
+        # Create a folder to store only the selected validation samples with original filenames
         if self.save_validation_samples:
             # Create validation samples directory in work_dir
             validation_dir = os.path.join(os.getcwd(), self.validation_samples_dir)
@@ -323,160 +320,117 @@ class LoRAWandbVizHook(Hook):
                     dst_csv_path = os.path.join(validation_dir, csv_filename)
                     shutil.copy2(self.csv_path, dst_csv_path)
                     self.logger.info(f"📄 Copied validation CSV to: {dst_csv_path}")
-                    
-                    # Also save it with a timestamp for uniqueness
-                    timestamped_csv = os.path.join(validation_dir, f"validation_{int(time.time())}.csv")
-                    shutil.copy2(self.csv_path, timestamped_csv)
                 except Exception as csv_e:
                     self.logger.warning(f"⚠️ Error copying CSV file: {csv_e}")
             
-            # If we have file paths in our validation data, copy those files too
             self._save_validation_files_with_original_names(samples, validation_dir)
-
-        # Create a table for the validation samples
-        columns = ["sample_idx", "prompt", "source_image", "target_image"]
-        validation_table = wandb.Table(columns=columns)
-        
-        # Also create a visual grid for easy viewing
-        image_rows = []
-        
-        for i, sample in enumerate(samples):
-            # Extract prompt (handle nested list case)
-            prompt = sample['prompt']
-            if isinstance(prompt, list) and len(prompt) > 0:
-                prompt = prompt[0] if isinstance(prompt[0], str) else str(prompt[0])
-            
-            # Prepare images - ensure they're in numpy format
-            source_img = sample['source_img']
-            if isinstance(source_img, torch.Tensor):
-                source_img = source_img.permute(1, 2, 0).cpu().numpy() * 255
-            source_img = np.array(source_img, dtype=np.uint8)
-            
-            target_img = sample['image'] 
-            if isinstance(target_img, torch.Tensor):
-                target_img = target_img.permute(1, 2, 0).cpu().numpy() * 255
-            target_img = np.array(target_img, dtype=np.uint8)
-            
-            # Add to table
-            validation_table.add_data(
-                i,
-                str(prompt),
-                wandb.Image(source_img, caption=f"Source #{i}"),
-                wandb.Image(target_img, caption=f"Target #{i}")
-            )
-            
-            # Add to grid
-            combined = np.hstack((source_img, target_img))
-            image_rows.append(combined)
-        
-        # Create grid if we have images
-        if len(image_rows) > 0:
-            try:
-                grid = np.vstack(image_rows)
-                wandb.log({
-                    "original_validation_samples_grid": wandb.Image(
-                        grid,
-                        caption="Original Validation Samples: Source (Input) | Target (Ground Truth)"
-                    ),
-                    "original_validation_samples": validation_table,
-                    "step": step
-                })
-                self.logger.info(f"✅ Logged {len(samples)} original validation samples to wandb")
-            except Exception as grid_e:
-                self.logger.warning(f"⚠️ Error creating validation grid: {grid_e}")
-                # Try to log just the table
-                wandb.log({
-                    "original_validation_samples": validation_table,
-                    "step": step
-                })
 
     def _save_validation_files_with_original_names(self, samples, output_dir):
         """Save validation files with their original filenames to the output directory."""
         try:
+            # Read the values from the VAL_DATA section in the YAML
+            self.logger.info(f"📊 Copying only the {len(samples)} selected validation samples")
+            
             # Try to get the original dataframe first to extract filenames
             if self.csv_path and os.path.exists(self.csv_path):
                 df = pd.read_csv(self.csv_path)
                 
-                # Only keep a few samples based on num_val_samples
-                df = df.head(self.num_val_samples)
+                # Create a selected samples subfolder
+                selected_dir = os.path.join(output_dir, "selected_validation_samples")
+                os.makedirs(selected_dir, exist_ok=True)
                 
-                # Create subdirectories for sources and targets
-                sources_dir = os.path.join(output_dir, "sources")
-                targets_dir = os.path.join(output_dir, "targets")
-                os.makedirs(sources_dir, exist_ok=True)
-                os.makedirs(targets_dir, exist_ok=True)
+                # Get info about selected samples
+                source_file_list = []
+                prompts_list = []
                 
-                # Check for required columns
-                if 'Source:FILE' in df.columns:
-                    # Copy source files with original names
-                    for idx, row in df.iterrows():
+                # Extract source filenames from our selected samples
+                for i, sample in enumerate(samples):
+                    if hasattr(sample, 'source_file_path') and sample.source_file_path:
+                        source_file_list.append(sample.source_file_path)
+                    elif hasattr(sample, 'source_path') and sample.source_path:
+                        source_file_list.append(sample.source_path)
+                    
+                    # Also collect prompts
+                    prompts_list.append(str(sample['prompt']))
+                
+                # For each of our selected samples, attempt to find its row in the CSV
+                for i, sample in enumerate(samples):
+                    source_file = None
+                    target_file = None
+                    prompt_text = str(sample['prompt'])
+                    
+                    # Try to find matching row in CSV for this sample
+                    matching_rows = None
+                    
+                    # If we have source paths in our sample objects
+                    if hasattr(sample, 'source_file_path') and sample.source_file_path:
+                        # Find row matching this source path
+                        filename = os.path.basename(sample.source_file_path)
+                        matching_rows = df[df['Source:FILE'].str.contains(filename, na=False)]
+                    
+                    # If no exact match, try to match by index (assuming we loaded in same order)
+                    if matching_rows is None or len(matching_rows) == 0:
+                        if i < len(df):
+                            matching_rows = df.iloc[[i]]
+                        else:
+                            continue
+                    
+                    # Process the matching row
+                    for _, row in matching_rows.iterrows():
+                        # Source file
                         source_path = os.path.join(self.image_root_dir, row['Source:FILE'])
                         source_filename = os.path.basename(row['Source:FILE'])
                         
                         if os.path.exists(source_path):
                             # Save with original filename
-                            dst_path = os.path.join(sources_dir, source_filename)
+                            dst_path = os.path.join(selected_dir, f"source_{i+1}_{source_filename}")
                             shutil.copy2(source_path, dst_path)
-                            self.logger.info(f"🖼️ Saved source image: {dst_path}")
-                            
-                            # Also save as PNG for better viewing
-                            png_path = os.path.splitext(dst_path)[0] + ".png"
-                            img = Image.open(source_path).convert('RGB')
-                            img.save(png_path, "PNG")
-                        else:
-                            self.logger.warning(f"⚠️ Source image not found: {source_path}")
-                
-                # Copy target files if available
-                if 'Target:FILE' in df.columns:
-                    for idx, row in df.iterrows():
-                        target_path = os.path.join(self.image_root_dir, row['Target:FILE'])
-                        target_filename = os.path.basename(row['Target:FILE'])
+                            self.logger.info(f"🖼️ Saved source image #{i+1}: {dst_path}")
                         
-                        if os.path.exists(target_path):
-                            # Save with original filename
-                            dst_path = os.path.join(targets_dir, target_filename)
-                            shutil.copy2(target_path, dst_path)
-                            self.logger.info(f"🖼️ Saved target image: {dst_path}")
+                        # Target file if available
+                        if 'Target:FILE' in row:
+                            target_path = os.path.join(self.image_root_dir, row['Target:FILE'])
+                            target_filename = os.path.basename(row['Target:FILE'])
                             
-                            # Also save as PNG for better viewing
-                            png_path = os.path.splitext(dst_path)[0] + ".png"
-                            img = Image.open(target_path).convert('RGB')
-                            img.save(png_path, "PNG")
-                        else:
-                            self.logger.warning(f"⚠️ Target image not found: {target_path}")
+                            if os.path.exists(target_path):
+                                dst_path = os.path.join(selected_dir, f"target_{i+1}_{target_filename}")
+                                shutil.copy2(target_path, dst_path)
+                                self.logger.info(f"🖼️ Saved target image #{i+1}: {dst_path}")
                 
-                # Save prompt information
-                if 'Prompt' in df.columns:
-                    prompts_file = os.path.join(output_dir, "prompts.txt")
-                    with open(prompts_file, 'w') as f:
-                        for idx, row in df.iterrows():
-                            source_filename = os.path.basename(row['Source:FILE']) if 'Source:FILE' in df.columns else f"sample_{idx}"
-                            f.write(f"Sample {idx} ({source_filename}): {row['Prompt']}\n\n")
-                    self.logger.info(f"📝 Saved prompts to: {prompts_file}")
+                prompts_file = os.path.join(selected_dir, "selected_prompts.txt")
+                with open(prompts_file, 'w') as f:
+                    for i, prompt in enumerate(prompts_list):
+                        f.write(f"Sample {i+1}: {prompt}\n\n")
+                self.logger.info(f"📝 Saved selected prompts to: {prompts_file}")
             else:
                 # If CSV is not available, try saving the tensors directly
+                fallback_dir = os.path.join(output_dir, "selected_validation_samples")
+                os.makedirs(fallback_dir, exist_ok=True)
+                
                 for i, sample in enumerate(samples):
                     # Create a filename based on index
-                    source_filename = f"source_sample_{i}.png"
-                    target_filename = f"target_sample_{i}.png"
+                    source_filename = f"source_sample_{i+1}.png"
+                    target_filename = f"target_sample_{i+1}.png"
                     
                     # Convert tensors to PIL images and save
                     source_img = sample['source_img']
                     if isinstance(source_img, torch.Tensor):
                         source_img = source_img.permute(1, 2, 0).cpu().numpy() * 255
                         source_img = Image.fromarray(source_img.astype(np.uint8))
-                        source_img.save(os.path.join(output_dir, source_filename))
+                        source_img.save(os.path.join(fallback_dir, source_filename))
                     
                     target_img = sample['image']
                     if isinstance(target_img, torch.Tensor):
                         target_img = target_img.permute(1, 2, 0).cpu().numpy() * 255
                         target_img = Image.fromarray(target_img.astype(np.uint8))
-                        target_img.save(os.path.join(output_dir, target_filename))
+                        target_img.save(os.path.join(fallback_dir, target_filename))
                     
                     # Save prompt information
                     prompt = sample.get('prompt', 'No prompt available')
-                    with open(os.path.join(output_dir, f"prompt_sample_{i}.txt"), 'w') as f:
+                    with open(os.path.join(fallback_dir, f"prompt_sample_{i+1}.txt"), 'w') as f:
                         f.write(f"{prompt}")
+                
+                self.logger.info(f"📝 Saved {len(samples)} selected samples to {fallback_dir}")
 
         except Exception as e:
             self.logger.error(f"❌ Error saving validation files: {e}")
