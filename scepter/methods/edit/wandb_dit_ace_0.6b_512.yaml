@@ -164,7 +164,7 @@ SOLVER:
   TRAIN_DATA:
     NAME: CSVInRAMDataset
     MODE: train
-    CSV_PATH: ./cache/datasets/therapy_pair/images_child/training.csv
+    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/training.csv
     IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
     BATCH_SIZE: 4
     NUM_WORKERS: 1
@@ -176,7 +176,7 @@ SOLVER:
   VAL_DATA:
     NAME: CSVInRAMDataset
     MODE: validation
-    CSV_PATH: ./cache/datasets/therapy_pair/images_child/validation.csv
+    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/validation.csv
     IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
     BATCH_SIZE: 1
     NUM_WORKERS: 1
