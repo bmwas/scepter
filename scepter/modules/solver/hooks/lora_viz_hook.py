@@ -138,26 +138,49 @@ class LoRAWandbVizHook(Hook):
                         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16):
                             outputs = solver.run_step_test(batch_data)
                         self.logger.info(f"✅ LoRAWandbVizHook: Got output from run_step_test, type: {type(outputs)}")
-                        
-                        # Check if fallback produced output and image
-                        if outputs and isinstance(outputs, dict) and 'images' in outputs and outputs['images'] is not None and len(outputs['images']) > 0:
-                            generated_img = outputs['images'][0]  # First image
-                            self.logger.info(f"✅ Fallback successful, found image with shape: {generated_img.shape}")
-                            
-                            # Convert to numpy for wandb
-                            gen_np = generated_img.permute(1, 2, 0).cpu().numpy()
+
+                        # Attempt to extract an image tensor from various possible structures
+                        generated_img = None
+                        if isinstance(outputs, dict):
+                            # Legacy path if outputs is dict with images key
+                            if 'images' in outputs and outputs['images'] is not None and len(outputs['images']) > 0:
+                                generated_img = outputs['images'][0]
+                            else:
+                                # look for any tensor value that looks like image
+                                for v in outputs.values():
+                                    if isinstance(v, torch.Tensor) and v.dim() == 3:
+                                        generated_img = v
+                                        break
+                        elif isinstance(outputs, list) and len(outputs) > 0:
+                            first = outputs[0]
+                            if isinstance(first, dict):
+                                # Common keys
+                                for k in ['reconstruct_imae', 'reconstruct_image', 'target_image', 'image']:
+                                    if k in first and isinstance(first[k], torch.Tensor):
+                                        generated_img = first[k]
+                                        break
+                                if generated_img is None:
+                                    # Search any tensor
+                                    for v in first.values():
+                                        if isinstance(v, torch.Tensor) and v.dim() == 3:
+                                            generated_img = v
+                                            break
+
+                        if generated_img is not None:
+                            self.logger.info(f"✅ Extracted image tensor from outputs with shape: {generated_img.shape}")
+                            # Convert to numpy
+                            gen_np = generated_img.permute(1, 2, 0).detach().cpu().numpy()
                             gen_np = (gen_np * 255).clip(0, 255).astype(np.uint8)
-                            
+
                             # Log the image
                             sample_data = {
-                                f"lora_sample_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
+                                f"lora_sample_{i+1}/generated": wandb.Image(gen_np, caption="Generated"),
                                 f"lora_sample_{i+1}/prompt": prompt_text
                             }
                             log_data.update(sample_data)
                             successful_images += 1
                         else:
-                             self.logger.warning(f"⚠️ LoRAWandbVizHook: Fallback ran but produced no images. Output: {outputs}")
-                             
+                            self.logger.warning(f"⚠️ LoRAWandbVizHook: Could not find image tensor in outputs")
                     except Exception as fallback_e:
                         self.logger.error(f"❌ LoRAWandbVizHook: Fallback failed specific error: {fallback_e}")
                         self.logger.error(traceback.format_exc()) # Log the full traceback for the fallback
