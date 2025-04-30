@@ -118,17 +118,27 @@ class LoRAWandbVizHook(Hook):
             
             if should_generate and cur_step > self.last_logged_step:
                 try:
-                    solver.logger.info(f"LoRAWandbVizHook: Generating visualization images at step {cur_step}")
+                    solver.logger.info("\n" + "="*80)
+                    solver.logger.info(f"📊 LoRAWandbVizHook: STARTING VISUALIZATION at step {cur_step}")
+                    solver.logger.info("="*80 + "\n")
                     
                     # Generate images using current model state
+                    solver.logger.info(f"🔄 LoRAWandbVizHook: Beginning inference with current LoRA weights...")
                     images = self._generate_images_with_current_lora(solver)
                     
                     # Log images to wandb
                     if images:
+                        solver.logger.info(f"✅ LoRAWandbVizHook: Successfully generated {len(images)} images!")
                         self._log_images_to_wandb(solver, images, cur_step)
                         self.last_logged_step = cur_step
+                    else:
+                        solver.logger.error(f"❌ LoRAWandbVizHook: Failed to generate any images at step {cur_step}")
                 except Exception as e:
-                    solver.logger.warning(f"Error in LoRAWandbVizHook.after_iter: {e}")
+                    solver.logger.error(f"❌ LoRAWandbVizHook FAILED: {str(e)}")
+                    solver.logger.error("\n" + "="*80)
+                    import traceback
+                    solver.logger.error(traceback.format_exc())
+                    solver.logger.error("="*80 + "\n")
     
     def _generate_images_with_current_lora(self, solver):
         """Generate images using the current LoRA adapter state."""
@@ -139,10 +149,14 @@ class LoRAWandbVizHook(Hook):
         result_images = {}
         
         try:
+            solver.logger.info(f"📝 LoRAWandbVizHook: Preparing to generate images with {len(self.prompts)} prompts")
+            
             with torch.no_grad():
                 with torch.autocast(device_type='cuda', enabled=solver.use_amp, dtype=solver.dtype):
                     # Generate images for each prompt
                     for i, prompt in enumerate(self.prompts):
+                        solver.logger.info(f"🖼️ LoRAWandbVizHook: Generating image [{i+1}/{len(self.prompts)}] with prompt: '{prompt}'")
+                        
                         sample_args = {
                             'sampler': 'ddim',
                             'sample_steps': self.num_inference_steps,
@@ -158,6 +172,7 @@ class LoRAWandbVizHook(Hook):
                         batch_data.update(sample_args)
                         
                         # Run inference
+                        solver.logger.info(f"🧠 LoRAWandbVizHook: Running inference for prompt '{prompt[:30]}...'")
                         result = solver.model.inference(transfer_data_to_cuda(batch_data))
                         
                         # Extract generated image
@@ -165,27 +180,44 @@ class LoRAWandbVizHook(Hook):
                             for j, edit_img in enumerate(result['edit_image']):
                                 if edit_img is not None:
                                     # Convert to numpy uint8 format (0-255)
+                                    solver.logger.info(f"✅ LoRAWandbVizHook: Successfully generated image for prompt {i+1}")
                                     img_np = (edit_img.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
                                     result_images[f"prompt_{i}_{j}"] = {
                                         'image': img_np,
                                         'prompt': prompt
                                     }
+                                else:
+                                    solver.logger.warning(f"⚠️ LoRAWandbVizHook: Got None image for prompt {i+1}, output {j}")
+                        else:
+                            solver.logger.warning(f"⚠️ LoRAWandbVizHook: No 'edit_image' in result for prompt '{prompt[:30]}...'")
+                            solver.logger.info(f"ℹ️ LoRAWandbVizHook: Result keys: {list(result.keys())}")
         except Exception as e:
-            solver.logger.warning(f"Error generating images with LoRA: {e}")
+            solver.logger.error(f"❌ LoRAWandbVizHook GENERATION ERROR: {str(e)}")
+            import traceback
+            solver.logger.error(traceback.format_exc())
         
         # Restore model to training mode
         solver.model.train()
+        
+        # Log summary of results
+        if result_images:
+            solver.logger.info(f"✅ LoRAWandbVizHook: Successfully generated {len(result_images)} images from {len(self.prompts)} prompts")
+        else:
+            solver.logger.error(f"❌ LoRAWandbVizHook: Failed to generate ANY images from {len(self.prompts)} prompts")
         
         return result_images
     
     def _log_images_to_wandb(self, solver, images, step):
         """Log generated images to wandb."""
         if not images:
+            solver.logger.error(f"❌ LoRAWandbVizHook: No images to log to wandb at step {step}")
             return
             
         log_dict = {}
         
         try:
+            solver.logger.info(f"📤 LoRAWandbVizHook: Preparing to log {len(images)} images to wandb at step {step}")
+            
             # Process each image for wandb logging
             for key, data in images.items():
                 img = data['image']
@@ -196,9 +228,11 @@ class LoRAWandbVizHook(Hook):
                     img,
                     caption=f"Step {step}: {prompt}"
                 )
+                solver.logger.info(f"📊 LoRAWandbVizHook: Added image '{key}' to log queue")
             
             # Also create a grid of all images
             if len(images) > 1:
+                solver.logger.info(f"🔳 LoRAWandbVizHook: Creating image grid of all {len(images)} images")
                 grid_images = [data['image'] for data in images.values()]
                 prompts = [data['prompt'] for data in images.values()]
                 
@@ -209,10 +243,16 @@ class LoRAWandbVizHook(Hook):
                 )
             
             # Log to wandb
+            solver.logger.info(f"📡 LoRAWandbVizHook: Sending {len(log_dict)} images to wandb...")
             self.wandb_run.log(log_dict, step=step)
-            solver.logger.info(f"Logged {len(images)} LoRA visualization images to wandb at step {step}")
+            solver.logger.info("\n" + "="*80)
+            solver.logger.info(f"🎉 LoRAWandbVizHook: SUCCESSFULLY logged {len(images)} images to wandb at step {step}")
+            solver.logger.info(f"🔗 LoRAWandbVizHook: Check W&B dashboard at: {self.wandb_run.get_url()}")
+            solver.logger.info("="*80 + "\n")
         except Exception as e:
-            solver.logger.warning(f"Error logging images to wandb: {e}")
+            solver.logger.error(f"❌ LoRAWandbVizHook WANDB LOGGING ERROR: {str(e)}")
+            import traceback
+            solver.logger.error(traceback.format_exc())
     
     def _create_image_grid(self, images, cols=2):
         """Create a grid of images for visualization."""
