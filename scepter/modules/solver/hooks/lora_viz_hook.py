@@ -105,8 +105,9 @@ class LoRAWandbVizHook(Hook):
                     
                     # Create the absolute simplest input possible
                     with torch.no_grad():
-                        # Call the model's forward_test method directly with minimal arguments
-                        output = solver.model(prompt=[prompt_text])
+                        # Call the model's forward_test method directly, using the required nested list format for the prompt
+                        self.logger.info(f"✅ LoRAWandbVizHook: Calling model directly with prompt: [[{prompt_text}]]")
+                        output = solver.model(prompt=[[prompt_text]])
                         
                         # Check if output contains an image tensor
                         if hasattr(output, 'images') and output.images is not None:
@@ -137,10 +138,11 @@ class LoRAWandbVizHook(Hook):
                     try:
                         self.logger.info(f"📝 LoRAWandbVizHook: Trying fallback with run_step_test")
                         
-                        # Create absolute minimal data
+                        # Create minimal data, ensuring prompt is in a list as often expected
                         batch_data = {
-                            'prompt': prompt_text,
+                            'prompt': [prompt_text],  # Pass prompt as a list
                         }
+                        self.logger.info(f"✅ LoRAWandbVizHook: Fallback batch_data: {batch_data}")
                         
                         # Run inference
                         outputs = solver.run_step_test(batch_data)
