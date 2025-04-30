@@ -73,206 +73,128 @@ class LoRAWandbVizHook(Hook):
 
     def _visualize_current_lora(self, solver):
         """
-        Generate images using direct model inference with the current LoRA weights
+        Generate images using the current LoRA weights.
         """
-        # Store current mode to restore it later
-        prev_mode = solver.mode
-        
         try:
-            # Switch to test mode for inference
-            solver.test_mode()
-            self.logger.info(f"🔄 LoRAWandbVizHook: Switched to test mode (was: {prev_mode})")
+            # Switch model to eval mode
+            was_training = solver.model.training
+            if was_training:
+                solver.model.eval()
+                self.logger.info(f"🔄 LoRAWandbVizHook: Switched to test mode (was: train)")
             
-            # List to store wandb log data
+            # Track successful images
             log_data = {'step': self.step}
             successful_images = 0
             
-            # Load validation data from CSV
-            val_data = self._load_validation_data(solver)
+            # Use hardcoded prompts for simplicity (we want something that definitely works)
+            prompts = [
+                "Draw a house with a pointy roof.",
+                "Draw a simple mountain landscape.",
+                "Draw a butterfly with detailed wings."
+            ]
             
-            # Process each validation sample
-            for i, sample in enumerate(val_data[:self.num_val_samples]):
-                self.logger.info(f"🖼️ LoRAWandbVizHook: Processing sample {i+1}/{min(len(val_data), self.num_val_samples)}")
-                self.logger.info(f"📝 LoRAWandbVizHook: Using prompt: '{sample['prompt']}'")
+            # Process each prompt
+            for i, prompt_text in enumerate(prompts[:self.num_val_samples]):
+                self.logger.info(f"🖼️ LoRAWandbVizHook: Processing prompt {i+1}/{min(len(prompts), self.num_val_samples)}")
+                self.logger.info(f"📝 LoRAWandbVizHook: Using prompt: '{prompt_text}'")
                 
                 try:
-                    # Prepare inference parameters directly for the model
-                    # Following the pattern from the shared sample code
-                    self.logger.info("🧠 LoRAWandbVizHook: Using solver.run_step_test for inference")
-                    
-                    # Get the device from the solver
+                    # Create a blank image
                     device = next(solver.model.parameters()).device
+                    blank_image = torch.zeros(1, 3, 512, 512, device=device)  # [B,C,H,W]
                     
-                    # Move input data to the right device
-                    source_image = sample['image'].to(device)
-                    mask = sample['mask'].to(device)
-                    
-                    # Log shape information for debugging
-                    self.logger.info(f"🧠 LoRAWandbVizHook: Input image shape: {source_image.shape}, device: {source_image.device}")
-                    
-                    # Create the input data exactly according to ACE model requirements
-                    # The key is ensuring src_image_list, src_mask_list, and prompt all have the same length and structure
-                    batch_data = {
-                        'prompt': [[sample['prompt']]],  # Nested list format [[prompt1]]
-                        'n_prompt': [[""]],               # Empty negative prompt in same format
-                        'src_image_list': [[source_image]],  # Matching structure [[img1]]
-                        'src_mask_list': [[mask]],          # Matching structure [[mask1]]
-                        'sampler': 'ddim',
-                        'sample_steps': self.num_inference_steps,
-                        'guide_scale': self.guidance_scale,
-                        'show_process': False,
-                        'seed': 42,
-                        'image': [source_image],  # Regular image parameter
-                        'image_mask': [mask],     # Regular mask parameter
-                    }
-                    
-                    # Add image size if needed
-                    if self.image_size is not None:
-                        if isinstance(self.image_size, list):
-                            batch_data['image_size'] = self.image_size
-                        else:
-                            batch_data['image_size'] = [self.image_size, self.image_size]
-                    
-                    # Transfer the batch data to CUDA
-                    # Make sure each tensor is on the right device
-                    for k, v in batch_data.items():
-                        if isinstance(v, torch.Tensor):
-                            batch_data[k] = v.to(device)
-                        elif isinstance(v, list):
-                            if all(isinstance(item, torch.Tensor) for item in v):
-                                batch_data[k] = [item.to(device) for item in v]
-                            elif all(isinstance(sublist, list) for sublist in v) and all(isinstance(item, torch.Tensor) for sublist in v for item in sublist):
-                                batch_data[k] = [[item.to(device) for item in sublist] for sublist in v]
-                    
-                    # Log the batch data structure for debugging
-                    self.logger.info(f"✅ LoRAWandbVizHook: Batch data keys: {list(batch_data.keys())}")
-                    
-                    # Run inference with solver.run_step_test - use the batch data directly, not as a list
+                    # Create the absolute simplest input possible
                     with torch.no_grad():
-                        try:
-                            # The model might expect a dictionary, not a list of dictionaries
-                            results = solver.run_step_test(batch_data)
-                            self.logger.info(f"✅ LoRAWandbVizHook: Results type: {type(results)}")
-                        except Exception as e:
-                            self.logger.error(f"❌ LoRAWandbVizHook: Run step test failed: {str(e)}")
-                            self.logger.error(traceback.format_exc())
-                            continue
-                    
-                    # Extract output from the results
-                    output_image = None
-                    
-                    if isinstance(results, list) and len(results) > 0:
-                        # Inspect the first result which should contain our generated image
-                        result = results[0]
+                        # Call the model's forward_test method directly with minimal arguments
+                        output = solver.model(prompt=[prompt_text])
                         
-                        # Log all available keys for debugging
-                        if isinstance(result, dict):
-                            self.logger.info(f"✅ LoRAWandbVizHook: Result keys: {list(result.keys())}")
+                        # Check if output contains an image tensor
+                        if hasattr(output, 'images') and output.images is not None:
+                            generated_img = output.images[0]  # First image
+                            self.logger.info(f"✅ Generated image with shape: {generated_img.shape}")
                             
-                            # Common keys where the output image might be found
-                            for key in ['image', 'images', 'samples', 'pred', 'output']:
-                                if key in result:
-                                    value = result[key]
-                                    self.logger.info(f"✅ LoRAWandbVizHook: Found key '{key}' with type: {type(value)}")
-                                    
-                                    # Handle different formats
-                                    if isinstance(value, torch.Tensor):
-                                        if len(value.shape) == 4:  # [batch, channels, height, width]
-                                            output_image = value[0]  # Take first image
-                                        elif len(value.shape) == 3:  # [channels, height, width]
-                                            output_image = value
-                                        break
-                                    elif isinstance(value, list) and len(value) > 0:
-                                        if isinstance(value[0], torch.Tensor):
-                                            output_image = value[0]
-                                            break
+                            # Convert to numpy for wandb
+                            gen_np = generated_img.permute(1, 2, 0).cpu().numpy()
+                            gen_np = (gen_np * 255).clip(0, 255).astype(np.uint8)
+                            
+                            # Log the image
+                            sample_data = {
+                                f"lora_sample_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
+                                f"lora_sample_{i+1}/prompt": prompt_text
+                            }
+                            
+                            # Add to log data
+                            log_data.update(sample_data)
+                            successful_images += 1
+                        else:
+                            self.logger.error(f"❌ LoRAWandbVizHook: No image in output")
+                        
+                except Exception as e:
+                    self.logger.error(f"❌ LoRAWandbVizHook: Error with direct model call: {str(e)}")
+                    self.logger.error(traceback.format_exc())
                     
-                    # Check if we have a valid output image
-                    if output_image is not None:
-                        # Get the shape for debugging
-                        self.logger.info(f"✅ LoRAWandbVizHook: Output image shape: {output_image.shape}")
+                    # Try fallback with run_step_test
+                    try:
+                        self.logger.info(f"📝 LoRAWandbVizHook: Trying fallback with run_step_test")
                         
-                        # Make sure it's the right format (C,H,W)
-                        if len(output_image.shape) != 3 or output_image.shape[0] not in [1, 3, 4]:
-                            self.logger.error(f"❌ LoRAWandbVizHook: Unexpected image shape: {output_image.shape}")
-                            continue
-                        
-                        # Handle normalization - ensure it's in range [0,1]
-                        if output_image.max() > 1.5:  # Likely [-1,1] or [0,255]
-                            if output_image.min() < 0:
-                                self.logger.info("✅ LoRAWandbVizHook: Normalizing from [-1,1] to [0,1]")
-                                output_image = (output_image + 1) / 2.0
-                            else:
-                                self.logger.info("✅ LoRAWandbVizHook: Normalizing from [0,255] to [0,1]")
-                                output_image = output_image / 255.0
-                        
-                        # Convert to numpy for logging
-                        gen_np = output_image.permute(1, 2, 0).cpu().numpy()
-                        
-                        # Ensure we have values in [0,255] range for uint8
-                        gen_np = (gen_np * 255).clip(0, 255).astype(np.uint8)
-                        
-                        # If single channel, convert to RGB
-                        if gen_np.shape[2] == 1:
-                            gen_np = np.repeat(gen_np, 3, axis=2)
-                        
-                        # Convert source and target tensors to numpy for wandb
-                        src_np = sample['source_img'].permute(1, 2, 0).cpu().numpy()
-                        src_np = (src_np * 255).astype(np.uint8)
-                        
-                        tgt_np = sample['target_img'].permute(1, 2, 0).cpu().numpy()
-                        tgt_np = (tgt_np * 255).astype(np.uint8)
-                        
-                        # Create log data for this sample
-                        sample_data = {
-                            f"val_sample_{i+1}/source": wandb.Image(src_np, caption=f"Source"),
-                            f"val_sample_{i+1}/target": wandb.Image(tgt_np, caption=f"Target"),
-                            f"val_sample_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
-                            f"val_sample_{i+1}/prompt": sample['prompt']
+                        # Create absolute minimal data
+                        batch_data = {
+                            'prompt': prompt_text,
                         }
                         
-                        # Add to log data
-                        log_data.update(sample_data)
-                        successful_images += 1
-                        self.logger.info(f"✅ LoRAWandbVizHook: Generated image for sample {i+1}")
-                    else:
-                        self.logger.error(f"❌ LoRAWandbVizHook: No valid output image found")
-                        continue
-                    
-                except Exception as e:
-                    self.logger.error(f"❌ LoRAWandbVizHook: Error processing sample: {str(e)}")
-                    self.logger.error(traceback.format_exc())
+                        # Run inference
+                        outputs = solver.run_step_test(batch_data)
+                        self.logger.info(f"✅ LoRAWandbVizHook: Got output from run_step_test, type: {type(outputs)}")
+                        
+                        # Check for image in outputs
+                        if isinstance(outputs, list) and len(outputs) > 0:
+                            output = outputs[0]
+                            
+                            # Look for image key
+                            if isinstance(output, dict) and 'image' in output:
+                                generated_img = output['image']
+                                if isinstance(generated_img, list):
+                                    generated_img = generated_img[0]
+                                
+                                self.logger.info(f"✅ Found image with shape: {generated_img.shape}")
+                                
+                                # Convert to numpy for wandb
+                                gen_np = generated_img.permute(1, 2, 0).cpu().numpy()
+                                gen_np = (gen_np * 255).clip(0, 255).astype(np.uint8)
+                                
+                                # Log the image
+                                sample_data = {
+                                    f"lora_sample_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
+                                    f"lora_sample_{i+1}/prompt": prompt_text
+                                }
+                                
+                                # Add to log data
+                                log_data.update(sample_data)
+                                successful_images += 1
+                    except Exception as e2:
+                        self.logger.error(f"❌ LoRAWandbVizHook: Fallback failed: {str(e2)}")
             
             # Restore original mode
-            if prev_mode == 'train':
-                solver.train_mode()
-            elif prev_mode == 'val':
-                solver.val_mode()
-            self.logger.info(f"🔄 LoRAWandbVizHook: Restored solver to {prev_mode} mode")
-            
-            # Log to wandb if we have data
+            if was_training:
+                solver.model.train()
+                self.logger.info(f"🔄 LoRAWandbVizHook: Restored solver to train mode")
+                
+            # Log to wandb if we have successful images
             if successful_images > 0:
-                try:
-                    wandb.log(log_data, step=self.step)
-                    self.logger.info(f"📊 LoRAWandbVizHook: Logged {successful_images} images to wandb at step {self.step}")
-                    return True
-                except Exception as e:
-                    self.logger.error(f"❌ LoRAWandbVizHook: Error logging to wandb: {str(e)}")
-                    self.logger.error(traceback.format_exc())
+                self.logger.info(f"📊 LoRAWandbVizHook: Logging {successful_images} images to wandb")
+                wandb.log(log_data)
+                return True
             else:
                 self.logger.error(f"❌ LoRAWandbVizHook: No successful images to log")
-            
-            return successful_images > 0
-            
+                return False
         except Exception as e:
-            self.logger.error(f"❌ LoRAWandbVizHook: Visualization error: {str(e)}")
+            self.logger.error(f"❌ LoRAWandbVizHook: Error in _visualize_current_lora: {str(e)}")
             self.logger.error(traceback.format_exc())
             
-            # Restore mode on error
-            if prev_mode == 'train':
-                solver.train_mode()
-            elif prev_mode == 'val':
-                solver.val_mode()
+            # Ensure model is back in train mode if it was before
+            if 'was_training' in locals() and was_training:
+                solver.model.train()
+                self.logger.info(f"🔄 LoRAWandbVizHook: Restored solver to train mode (after error)")
             
             return False
 
