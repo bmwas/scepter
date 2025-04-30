@@ -99,95 +99,62 @@ class LoRAWandbVizHook(Hook):
                     
                     # Prepare inference parameters directly for the model
                     # Following the pattern from the shared sample code
-                    try:
-                        # Try direct model inference if available
-                        if hasattr(solver.model, '__call__'):
-                            self.logger.info("🧠 LoRAWandbVizHook: Using direct model inference")
-                            results = solver.model(
-                                image=[blank_image],
-                                mask=[None],
-                                task=[""],
-                                prompt=[[prompt_text]],
-                                negative_prompt=[[""]],
-                                output_height=self.image_size if isinstance(self.image_size, int) else self.image_size[0],
-                                output_width=self.image_size if isinstance(self.image_size, int) else self.image_size[1],
-                                sampler="ddim",
-                                sample_steps=self.num_inference_steps,
-                                guide_scale=self.guidance_scale,
-                                guide_rescale=0.5,
-                                seed=42,
-                            )
-                            
-                            if isinstance(results, list) and len(results) > 0:
-                                generated_img = results[0]
-                                if isinstance(generated_img, torch.Tensor):
-                                    gen_np = generated_img.permute(1, 2, 0).cpu().numpy()
-                                    gen_np = (gen_np * 255).astype(np.uint8)
-                                else:
-                                    # If the result is a PIL image
-                                    gen_np = np.array(generated_img)
-                            else:
-                                self.logger.error(f"❌ LoRAWandbVizHook: Unexpected results format: {type(results)}")
-                                continue
-                        else:
-                            # Fallback to solver.run_step_test
-                            self.logger.info("🧠 LoRAWandbVizHook: Using solver.run_step_test inference")
-                            batch_data = {
-                                'prompt': [[prompt_text]],  # Nested list for ACE model
-                                'n_prompt': [[""]],         # Empty negative prompt
-                                'src_image_list': [[]],     # Required by ACE model
-                                'src_mask_list': [[]],      # Required by ACE model
-                                'sampler': 'ddim',
-                                'sample_steps': self.num_inference_steps,
-                                'guide_scale': self.guidance_scale,
-                                'guide_rescale': 0.5,
-                                'seed': 42,                 # Fixed seed for reproducibility
-                                'image': [blank_image],     # Blank image as list
-                                'image_mask': [torch.ones(1, blank_size, blank_size, device='cuda')], # Full mask
-                            }
-                            
-                            # Add image size if needed
-                            if self.image_size is not None:
-                                if isinstance(self.image_size, list):
-                                    batch_data['image_size'] = self.image_size
-                                else:
-                                    batch_data['image_size'] = [self.image_size, self.image_size]
-                            
-                            # Use same method as in run_inference.py
-                            with torch.no_grad():
-                                with torch.autocast("cuda", enabled=True, dtype=solver.dtype):
-                                    batch_data = transfer_data_to_cuda(batch_data)
-                                    results = solver.run_step_test(batch_data)
-                            
-                            # Extract the generated image
-                            generated_img = None
-                            for out in results:
-                                if 'image' in out:
-                                    generated_img = out['image']
-                                    break
-                                    
-                            if generated_img is not None:
-                                # Convert to numpy for logging
-                                gen_np = generated_img.permute(1, 2, 0).cpu().numpy()
-                                gen_np = (gen_np * 255).astype(np.uint8)
-                            else:
-                                self.logger.error(f"❌ LoRAWandbVizHook: No 'image' in results")
-                                continue
-                    except Exception as e:
-                        self.logger.error(f"❌ LoRAWandbVizHook: Error during inference: {str(e)}")
-                        self.logger.error(traceback.format_exc())
-                        continue
+                    self.logger.info("🧠 LoRAWandbVizHook: Using solver.run_step_test for inference")
                     
-                    # Create log data for this sample
-                    sample_data = {
-                        f"lora_viz_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
-                        f"lora_viz_{i+1}/prompt": prompt_text
+                    # Create the input data exactly according to ACE model requirements
+                    # The key is ensuring src_image_list, src_mask_list, and prompt all have the same length and structure
+                    batch_data = {
+                        'prompt': [[prompt_text]],  # Nested list format [[prompt1]]
+                        'n_prompt': [[""]],         # Empty negative prompt in same format
+                        'src_image_list': [[blank_image]],  # Matching structure [[img1]]
+                        'src_mask_list': [[torch.ones(1, blank_size, blank_size, device='cuda')]],  # Matching structure [[mask1]]
+                        'sampler': 'ddim',
+                        'sample_steps': self.num_inference_steps,
+                        'guide_scale': self.guidance_scale,
+                        'guide_rescale': 0.5,
+                        'seed': 42,
+                        'image': [blank_image],  # Regular image parameter
+                        'image_mask': [torch.ones(1, blank_size, blank_size, device='cuda')],  # Regular mask parameter
                     }
                     
-                    # Add to log data
-                    log_data.update(sample_data)
-                    successful_images += 1
-                    self.logger.info(f"✅ LoRAWandbVizHook: Generated image for prompt {i+1}")
+                    # Add image size if needed
+                    if self.image_size is not None:
+                        if isinstance(self.image_size, list):
+                            batch_data['image_size'] = self.image_size
+                        else:
+                            batch_data['image_size'] = [self.image_size, self.image_size]
+                    
+                    # Use same method as in run_inference.py
+                    with torch.no_grad():
+                        with torch.autocast("cuda", enabled=True, dtype=solver.dtype):
+                            batch_data = transfer_data_to_cuda(batch_data)
+                            results = solver.run_step_test(batch_data)
+                    
+                    # Extract the generated image
+                    generated_img = None
+                    for out in results:
+                        if 'image' in out:
+                            generated_img = out['image']
+                            break
+                            
+                    if generated_img is not None:
+                        # Convert to numpy for logging
+                        gen_np = generated_img.permute(1, 2, 0).cpu().numpy()
+                        gen_np = (gen_np * 255).astype(np.uint8)
+                        
+                        # Create log data for this sample
+                        sample_data = {
+                            f"lora_viz_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
+                            f"lora_viz_{i+1}/prompt": prompt_text
+                        }
+                        
+                        # Add to log data
+                        log_data.update(sample_data)
+                        successful_images += 1
+                        self.logger.info(f"✅ LoRAWandbVizHook: Generated image for prompt {i+1}")
+                    else:
+                        self.logger.error(f"❌ LoRAWandbVizHook: No 'image' in results")
+                        continue
                     
                 except Exception as e:
                     self.logger.error(f"❌ LoRAWandbVizHook: Error processing prompt: {str(e)}")
