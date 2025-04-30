@@ -101,9 +101,12 @@ class LoRAWandbVizHook(Hook):
                 # Try direct model call first (simplest)
                 try:
                     with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16):
+                        # Create blank image tensor per prompt
+                        blank_image = torch.zeros(3, self.image_size, self.image_size)
+                        
                         # Call the model's forward_test method directly, providing required lists with matching length
-                        self.logger.info(f"✅ LoRAWandbVizHook: Calling model directly with prompt: [[{prompt_text}]], src_image_list: [[None]], src_mask_list: [[None]]")
-                        output = solver.model(prompt=[[prompt_text]], src_image_list=[[None]], src_mask_list=[[None]])
+                        self.logger.info(f"✅ LoRAWandbVizHook: Calling model directly with prompt: [[{prompt_text}]], src_image_list: [[None]], src_mask_list: [[None]], image=[{blank_image.shape}], image_mask=[[None]]")
+                        output = solver.model(prompt=[[prompt_text]], src_image_list=[[None]], src_mask_list=[[None]], image=[blank_image], image_mask=[[None]])
                         
                         # Check if output contains an image tensor
                         if hasattr(output, 'images') and output.images is not None and len(output.images) > 0:
@@ -125,7 +128,9 @@ class LoRAWandbVizHook(Hook):
                         batch_data = {
                             'prompt': [[prompt_text]],  # Ensure nested list for prompt
                             'src_image_list': [[None]],
-                            'src_mask_list': [[None]]
+                            'src_mask_list': [[None]],
+                            'image': [torch.zeros(3, self.image_size, self.image_size)],  # Provide dummy blank image
+                            'image_mask': [[None]]  # Provide dummy image mask
                         }
                         self.logger.info(f"✅ LoRAWandbVizHook: Fallback batch_data: {batch_data}")
                         
