@@ -88,6 +88,9 @@ class LoRAWandbVizHook(Hook):
             num_prompts = len(samples_to_use)
             self.logger.info(f"📝 LoRAWandbVizHook: Using {num_prompts} validation samples for visualization.")
 
+            # First, log the original validation samples that were selected (before any prediction)
+            self._log_original_validation_samples(samples_to_use, step=solver.total_iter)
+            
             log_data = {}
             successful_images = 0
             prompt_list = []
@@ -176,7 +179,6 @@ class LoRAWandbVizHook(Hook):
                             # Log the image
                             sample_data = {
                                 f"lora_sample_{i+1}/generated": wandb.Image(gen_np, caption="Generated"),
-                                f"lora_sample_{i+1}/target": wandb.Image(sample['image'].permute(1, 2, 0).cpu().numpy() * 255, caption="Target (Ground Truth)"),
                                 f"lora_sample_{i+1}/prompt": prompt_text
                             }
                             log_data.update(sample_data)
@@ -200,7 +202,6 @@ class LoRAWandbVizHook(Hook):
                     # Log the image
                     sample_data = {
                         f"lora_sample_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
-                        f"lora_sample_{i+1}/target": wandb.Image(sample['image'].permute(1, 2, 0).cpu().numpy() * 255, caption=f"Target (Ground Truth)"),
                         f"lora_sample_{i+1}/prompt": prompt_text
                     }
                     log_data.update(sample_data)
@@ -212,13 +213,12 @@ class LoRAWandbVizHook(Hook):
             # Log all collected images to wandb
             if successful_images > 0:
                 if self.log_prompts and len(prompt_list) > 0:
-                    columns = ["sample_idx", "prompt", "source_image", "target_image", "generated_image"]
+                    columns = ["sample_idx", "prompt", "source_image", "generated_image"]
                     wandb_table = wandb.Table(columns=columns)
                     
-                    for i, (prompt, src_img, tgt_img, gen_img) in enumerate(zip(
+                    for i, (prompt, src_img, gen_img) in enumerate(zip(
                         prompt_list, 
                         [sample['source_img'] for sample in samples_to_use], 
-                        [sample['image'] for sample in samples_to_use],
                         [log_data[f"lora_sample_{i+1}/generated"] for i in range(len(prompt_list))]
                     )):
                         # Add row to wandb table
@@ -232,12 +232,11 @@ class LoRAWandbVizHook(Hook):
                             i, 
                             actual_prompt, 
                             wandb.Image(src_img), 
-                            wandb.Image(tgt_img.permute(1, 2, 0).cpu().numpy() * 255),
                             wandb.Image(gen_img)
                         )
                         
                     wandb.log({
-                        "lora_samples_with_prompts": wandb_table, 
+                        "lora_predictions_with_prompts": wandb_table, 
                         "step": self.step
                     })
                 
@@ -248,19 +247,17 @@ class LoRAWandbVizHook(Hook):
                 try:
                     # Extract images for grid
                     source_images = [np.array(sample['source_img'] * 255, dtype=np.uint8) for sample in samples_to_use[:successful_images]]
-                    target_images = [np.array(sample['image'].permute(1, 2, 0).cpu().numpy() * 255, dtype=np.uint8) for sample in samples_to_use[:successful_images]]
                     generated_images = [np.array(log_data[f"lora_sample_{i+1}/generated"].image_data, dtype=np.uint8) for i in range(successful_images)]
                     
                     # Create a grid with source, target, and generated images side-by-side
                     image_rows = []
-                    for src_img, tgt_img, gen_img in zip(source_images, target_images, generated_images):
+                    for src_img, gen_img in zip(source_images, generated_images):
                         # Ensure all images are same dimensions for horizontal stacking
                         src_img = src_img.astype(np.uint8)
-                        tgt_img = tgt_img.astype(np.uint8)
                         gen_img = gen_img.astype(np.uint8)
                         
                         # Stack source, target, and generated images side by side
-                        combined = np.hstack((src_img, tgt_img, gen_img))
+                        combined = np.hstack((src_img, gen_img))
                         image_rows.append(combined)
                         
                     # Create vertical grid if we have images
@@ -268,9 +265,9 @@ class LoRAWandbVizHook(Hook):
                         try:
                             grid = np.vstack(image_rows)
                             wandb.log({
-                                "lora_samples_grid": wandb.Image(
+                                "lora_predictions_grid": wandb.Image(
                                     grid, 
-                                    caption="Source (Input) | Target (Ground Truth) | Generated (Prediction)"
+                                    caption="Source (Input) | Generated (Prediction)"
                                 )
                             })
                         except Exception as grid_e:
@@ -299,6 +296,71 @@ class LoRAWandbVizHook(Hook):
                  solver.model.train()
                  self.logger.info(f"🔄 LoRAWandbVizHook: Restored solver to train mode (after critical error)")
             return False # Indicate failure
+
+    def _log_original_validation_samples(self, samples, step=0):
+        """Log the original validation samples to wandb (before any prediction)."""
+        if wandb.run is None:
+            return
+
+        if len(samples) == 0:
+            return
+
+        # Create a table for the validation samples
+        columns = ["sample_idx", "prompt", "source_image", "target_image"]
+        validation_table = wandb.Table(columns=columns)
+        
+        # Also create a visual grid for easy viewing
+        image_rows = []
+        
+        for i, sample in enumerate(samples):
+            # Extract prompt (handle nested list case)
+            prompt = sample['prompt']
+            if isinstance(prompt, list) and len(prompt) > 0:
+                prompt = prompt[0] if isinstance(prompt[0], str) else str(prompt[0])
+            
+            # Prepare images - ensure they're in numpy format
+            source_img = sample['source_img']
+            if isinstance(source_img, torch.Tensor):
+                source_img = source_img.permute(1, 2, 0).cpu().numpy() * 255
+            source_img = np.array(source_img, dtype=np.uint8)
+            
+            target_img = sample['image'] 
+            if isinstance(target_img, torch.Tensor):
+                target_img = target_img.permute(1, 2, 0).cpu().numpy() * 255
+            target_img = np.array(target_img, dtype=np.uint8)
+            
+            # Add to table
+            validation_table.add_data(
+                i,
+                str(prompt),
+                wandb.Image(source_img, caption=f"Source #{i}"),
+                wandb.Image(target_img, caption=f"Target #{i}")
+            )
+            
+            # Add to grid
+            combined = np.hstack((source_img, target_img))
+            image_rows.append(combined)
+        
+        # Create grid if we have images
+        if len(image_rows) > 0:
+            try:
+                grid = np.vstack(image_rows)
+                wandb.log({
+                    "original_validation_samples_grid": wandb.Image(
+                        grid,
+                        caption="Original Validation Samples: Source (Input) | Target (Ground Truth)"
+                    ),
+                    "original_validation_samples": validation_table,
+                    "step": step
+                })
+                self.logger.info(f"✅ Logged {len(samples)} original validation samples to wandb")
+            except Exception as grid_e:
+                self.logger.warning(f"⚠️ Error creating validation grid: {grid_e}")
+                # Try to log just the table
+                wandb.log({
+                    "original_validation_samples": validation_table,
+                    "step": step
+                })
 
     def _load_validation_data(self, solver):
         """
