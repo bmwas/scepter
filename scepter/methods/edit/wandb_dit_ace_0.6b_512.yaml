@@ -211,10 +211,24 @@ SOLVER:
       OUTPUT_DIR: "FINAL_LORA_HF",
       SAVE_ON_STEPS: [200],
       SAVE_LORA_ONLY: true,
+      MODEL_COMPONENTS: ["lora_adapters"],  # Only save LoRA adapter weights
       PUSH_TO_HUB: true,
       HUB_MODEL_ID: "Benson/ace-model-0.6b-512-lora-final",
       HUB_PRIVATE: false,
       HUB_TOKEN: "${env:HUGGINGFACE_TOKEN}"}
+      
+    # ---------------- LoRA visualization hook ----------------
+    - {NAME: LoRAWandbVizHook, PRIORITY: 500,
+      VIZ_INTERVAL: 50,         # Generate images every 50 steps
+      VIZ_START: 10,            # Start at step 10
+      PROMPTS: [
+        "A photo of a beautiful sunset over the ocean",
+        "A professional photograph of a white horse running in a field",
+        "An oil painting of a cafe in Paris at night"
+      ],
+      NUM_INFERENCE_STEPS: 20,  # Faster sampling for visualization
+      GUIDANCE_SCALE: 4.5,      # Standard guidance scale
+      IMAGE_SIZE: 512}          # Output image size
       
     # ---------------- images / probe data -----------------
     - {NAME: ProbeDataHook,       PROB_INTERVAL: 100}                        # keeps local saves
