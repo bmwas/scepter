@@ -7,6 +7,7 @@ import logging
 import random
 import traceback
 import csv
+import pandas as pd
 from typing import Dict, List, Any, Optional, Union
 
 import numpy as np
@@ -235,14 +236,14 @@ class LoRAWandbVizHook(Hook):
 
     def _load_validation_data(self, solver):
         """
-        Load validation data from CSV file using the path from the config
-        Format: Source:FILE, Target:FILE, Prompt
+        Load validation data from CSV file using the path from the config.
+        Uses pandas, matching the approach in CSVInRAMDataset.
         """
         # Use the paths from the solver's data config
         if self.csv_path is None:
             # Try to get paths from solver config
             try:
-                if hasattr(solver, 'cfg') and solver.cfg.get('DATA') and solver.cfg.DATA.get('VAL_DATA'):
+                if hasattr(solver, 'cfg') and hasattr(solver.cfg, 'DATA') and hasattr(solver.cfg.DATA, 'VAL_DATA'):
                     val_cfg = solver.cfg.DATA.VAL_DATA
                     self.csv_path = val_cfg.get('CSV_PATH', './cache/datasets/therapy_pair/images_therapist/validation.csv')
                     self.image_root_dir = val_cfg.get('IMAGE_ROOT_DIR', './cache/datasets/therapy_pair')
@@ -265,44 +266,64 @@ class LoRAWandbVizHook(Hook):
         
         val_data = []
         try:
-            # CSV is tab-delimited based on the sample
-            with open(self.csv_path, 'r') as f:
-                reader = csv.DictReader(f, delimiter='\t')
-                for row in reader:
-                    # Get source and target paths
-                    source_path = os.path.join(self.image_root_dir, row['Source:FILE'])
-                    target_path = os.path.join(self.image_root_dir, row['Target:FILE'])
-                    prompt = row['Prompt']
-                    
-                    self.logger.info(f"📊 LoRAWandbVizHook: Loading source: {source_path}")
+            # Use pandas to read the CSV file, matching CSVInRAMDataset approach
+            self.logger.info(f"📊 LoRAWandbVizHook: Reading CSV with pandas: {self.csv_path}")
+            df = pd.read_csv(self.csv_path)
+            
+            # Log the columns for debugging
+            self.logger.info(f"📊 LoRAWandbVizHook: CSV columns: {df.columns.tolist()}")
+            
+            # Check for required columns
+            required_columns = ['Source:FILE', 'Prompt']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                self.logger.error(f"❌ LoRAWandbVizHook: Missing required columns in CSV: {missing_columns}")
+                return []
+                
+            # Target column is optional
+            target_col = 'Target:FILE' if 'Target:FILE' in df.columns else None
+            
+            # Process each row
+            for _, row in df.iterrows():
+                source_path = os.path.join(self.image_root_dir, row['Source:FILE'])
+                prompt = row['Prompt']
+                
+                # Target path if available
+                target_path = None
+                if target_col:
+                    target_path = os.path.join(self.image_root_dir, row[target_col])
+                
+                self.logger.info(f"📊 LoRAWandbVizHook: Loading source: {source_path}")
+                if target_path:
                     self.logger.info(f"📊 LoRAWandbVizHook: Loading target: {target_path}")
+                
+                try:
+                    # Load source image
+                    source_img = Image.open(source_path).convert('RGB')
+                    source_tensor = torch.from_numpy(np.array(source_img).transpose(2, 0, 1)) / 255.0
                     
-                    try:
-                        # Load source and target images
-                        source_img = Image.open(source_path).convert('RGB')
+                    # Load target image if available
+                    target_tensor = None
+                    if target_path and os.path.exists(target_path):
                         target_img = Image.open(target_path).convert('RGB')
-                        
-                        # Convert to tensors
-                        source_tensor = torch.from_numpy(np.array(source_img).transpose(2, 0, 1)) / 255.0
                         target_tensor = torch.from_numpy(np.array(target_img).transpose(2, 0, 1)) / 255.0
-                        
-                        # Create a blank mask (all ones)
-                        mask_tensor = torch.ones(1, source_tensor.shape[1], source_tensor.shape[2])
-                        
-                        # Make sure dimensions match what the model expects
-                        if source_tensor.shape[1] != source_tensor.shape[2]:
-                            self.logger.warning(f"⚠️ LoRAWandbVizHook: Image dimensions not square: {source_tensor.shape}")
-                        
-                        val_data.append({
-                            'prompt': prompt,
-                            'source_img': source_tensor,
-                            'target_img': target_tensor,
-                            'image': source_tensor,  # Use source as input image
-                            'mask': mask_tensor  # Full mask (no masking)
-                        })
-                    except Exception as e:
-                        self.logger.error(f"❌ LoRAWandbVizHook: Error loading images: {str(e)}")
-                        continue
+                    else:
+                        # Use source as target if no target is available
+                        target_tensor = source_tensor.clone()
+                    
+                    # Create a blank mask (all ones)
+                    mask_tensor = torch.ones(1, source_tensor.shape[1], source_tensor.shape[2])
+                    
+                    val_data.append({
+                        'prompt': prompt,
+                        'source_img': source_tensor,
+                        'target_img': target_tensor,
+                        'image': source_tensor,  # Use source as input image
+                        'mask': mask_tensor  # Full mask (no masking)
+                    })
+                except Exception as e:
+                    self.logger.error(f"❌ LoRAWandbVizHook: Error loading images: {str(e)}")
+                    continue
         except Exception as e:
             self.logger.error(f"❌ LoRAWandbVizHook: Error reading CSV: {str(e)}")
             self.logger.error(traceback.format_exc())
