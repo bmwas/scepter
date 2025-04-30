@@ -169,6 +169,8 @@ class LoRAWandbVizHook(Hook):
                     batch_data.update({
                         'prompt': [[prompt]],  # Must be a list of lists
                         'n_prompt': [[""]],    # Empty negative prompt as list of lists
+                        'src_image_list': [[]],  # Required by ACE model even if empty
+                        'src_mask_list': [[]],   # Required by ACE model even if empty
                         'sampler': 'ddim',
                         'sample_steps': self.num_inference_steps,
                         'guide_scale': self.guidance_scale,
