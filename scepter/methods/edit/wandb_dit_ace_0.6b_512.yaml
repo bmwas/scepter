@@ -11,11 +11,11 @@ SOLVER:
   USE_AMP: True
   DTYPE: float16
   CHANNELS_LAST: True
-  MAX_STEPS: 200
+  MAX_STEPS: 1500
   MAX_EPOCHS: -1
   NUM_FOLDS: 10
   ACCU_STEP: 1
-  EVAL_INTERVAL: 10
+  EVAL_INTERVAL: 5
   RESCALE_LR: False
   #
   WORK_DIR: ./cache/save_data/ace_0.6b_512
@@ -221,9 +221,9 @@ SOLVER:
     - {NAME: LoRAWandbVizHook, PRIORITY: 500,
       VIZ_INTERVAL: 50,         # Generate images every 50 steps
       VIZ_START: 5,             # Start at step 5
-      NUM_VAL_SAMPLES: 3,       # Number of validation samples to use
+      NUM_VAL_SAMPLES: 5,       # Number of validation samples to use
       NUM_INFERENCE_STEPS: 20,  # Faster sampling for visualization
-      GUIDANCE_SCALE: 4.5,      # Standard guidance scale
+      GUIDANCE_SCALE: 7.5,      # Standard guidance scale
       IMAGE_SIZE: 512,
       LOG_PROMPTS: true,        # Log the prompts used for visualization
       }
