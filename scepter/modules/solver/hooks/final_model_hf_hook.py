@@ -663,7 +663,7 @@ class FinalModelHFHook(Hook):
             
             # Copy all files from the full_output_dir to local_dir
             import shutil
-            for item in FS.list_dir(self.full_output_dir):
+            for item in self.list_remote_files(self.full_output_dir, solver):
                 if item['type'] == 'file':
                     src_path = osp.join(self.full_output_dir, item['name'])
                     with FS.get_from(src_path, wait_finish=True) as local_file:
