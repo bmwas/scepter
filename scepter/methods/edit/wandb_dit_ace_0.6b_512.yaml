@@ -222,6 +222,7 @@ SOLVER:
       VIZ_INTERVAL: 25,         # Generate images every 25 steps
       VIZ_START: 5,             # Start at step 5
       NUM_VAL_SAMPLES: 5,       # Number of validation samples to use
+      FIXED_SAMPLE_INDICES: [0, 1, 2, 3, 4],  # Use first 5 samples consistently
       NUM_INFERENCE_STEPS: 30,  # Increased from 20 for better quality
       GUIDANCE_SCALE: 9.0,      # Increased from 7.5 for stronger conditioning
       IMAGE_SIZE: 512,
@@ -234,7 +235,7 @@ SOLVER:
       TRACK_ON_START: true,   # Added to ensure tracking at beginning of training
       WATCHED_DIRECTORIES: [
         "./cache/save_data",   # Main save directory
-        "./cache/datasets/therapy_pair/images_therapist",  # Updated CSV directory
+        "./cache/datasets/therapy_pair/images_child",  # Updated CSV directory
       ],
       SPECIFIC_FILES: [
         "./scepter/methods/edit/wandb_dit_ace_0.6b_512.yaml"  # Using absolute path

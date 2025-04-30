@@ -40,6 +40,7 @@ class LoRAWandbVizHook(Hook):
         self.guidance_scale = cfg.get('GUIDANCE_SCALE', 4.5)
         self.image_size = cfg.get('IMAGE_SIZE', 512)
         self.num_val_samples = cfg.get('NUM_VAL_SAMPLES', 3)
+        self.fixed_sample_indices = cfg.get('FIXED_SAMPLE_INDICES', None)  # New parameter for fixed indices
         self.log_prompts = cfg.get('LOG_PROMPTS', False)
         self.save_validation_samples = cfg.get('SAVE_VALIDATION_SAMPLES', True)
         self.validation_samples_dir = cfg.get('VALIDATION_SAMPLES_DIR', 'validation_samples')
@@ -88,7 +89,25 @@ class LoRAWandbVizHook(Hook):
 
             # Load validation samples from VAL_DATA config
             self.val_samples = self._load_validation_data(solver)
-            samples_to_use = self.val_samples[:self.num_val_samples]
+            
+            # Use fixed sample indices if specified, otherwise take the first N samples
+            if self.fixed_sample_indices is not None:
+                # Get samples at the specified indices, ensuring we don't exceed list bounds
+                samples_to_use = []
+                for idx in self.fixed_sample_indices:
+                    if idx < len(self.val_samples):
+                        samples_to_use.append(self.val_samples[idx])
+                    else:
+                        self.logger.warning(f"⚠️ Index {idx} exceeds validation sample count {len(self.val_samples)}")
+                
+                if len(samples_to_use) == 0:
+                    # Fallback to first samples if all indices were invalid
+                    samples_to_use = self.val_samples[:self.num_val_samples]
+                    self.logger.warning(f"⚠️ No valid fixed indices, using first {len(samples_to_use)} samples instead")
+            else:
+                # Original behavior: take first N samples
+                samples_to_use = self.val_samples[:self.num_val_samples]
+                
             num_prompts = len(samples_to_use)
             self.logger.info(f"📝 LoRAWandbVizHook: Using {num_prompts} validation samples for visualization.")
 
@@ -635,6 +654,7 @@ def get_config_template():
             'GUIDANCE_SCALE': 4.5,
             'IMAGE_SIZE': 512,
             'NUM_VAL_SAMPLES': 3,
+            'FIXED_SAMPLE_INDICES': None,
             'LOG_PROMPTS': False,
             'SAVE_VALIDATION_SAMPLES': True,
             'VALIDATION_SAMPLES_DIR': 'validation_samples'
