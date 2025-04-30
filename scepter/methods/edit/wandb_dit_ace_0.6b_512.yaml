@@ -219,11 +219,11 @@ SOLVER:
       
     # ---------------- LoRA visualization hook ----------------
     - {NAME: LoRAWandbVizHook, PRIORITY: 500,
-      VIZ_INTERVAL: 50,         # Generate images every 50 steps
+      VIZ_INTERVAL: 25,         # Generate images every 25 steps
       VIZ_START: 5,             # Start at step 5
       NUM_VAL_SAMPLES: 5,       # Number of validation samples to use
-      NUM_INFERENCE_STEPS: 20,  # Faster sampling for visualization
-      GUIDANCE_SCALE: 7.5,      # Standard guidance scale
+      NUM_INFERENCE_STEPS: 30,  # Increased from 20 for better quality
+      GUIDANCE_SCALE: 9.0,      # Increased from 7.5 for stronger conditioning
       IMAGE_SIZE: 512,
       LOG_PROMPTS: true,        # Log the prompts used for visualization
       }
