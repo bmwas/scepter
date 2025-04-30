@@ -38,6 +38,7 @@ class LoRAWandbVizHook(Hook):
         self.guidance_scale = cfg.get('GUIDANCE_SCALE', 4.5)
         self.image_size = cfg.get('IMAGE_SIZE', 512)
         self.num_val_samples = cfg.get('NUM_VAL_SAMPLES', 3)
+        self.log_prompts = cfg.get('LOG_PROMPTS', False)
         
         # CSV validation data info (will be populated from solver config)
         self.csv_path = None
@@ -89,6 +90,7 @@ class LoRAWandbVizHook(Hook):
 
             log_data = {}
             successful_images = 0
+            prompt_list = []
 
             for i, sample in enumerate(samples_to_use):
                 # Extract sample data and move to device
@@ -178,6 +180,7 @@ class LoRAWandbVizHook(Hook):
                             }
                             log_data.update(sample_data)
                             successful_images += 1
+                            prompt_list.append(prompt_text)
                         else:
                             self.logger.warning(f"⚠️ LoRAWandbVizHook: Could not find image tensor in outputs")
                     except Exception as fallback_e:
@@ -200,11 +203,36 @@ class LoRAWandbVizHook(Hook):
                     }
                     log_data.update(sample_data)
                     successful_images += 1
+                    prompt_list.append(prompt_text)
                 else:
                      self.logger.warning(f"⚠️ LoRAWandbVizHook: Direct call seemed successful but image processing failed. Output: {output}")
 
             # Log all collected images to wandb
             if successful_images > 0:
+                if self.log_prompts and len(prompt_list) > 0:
+                    columns = ["sample_idx", "prompt", "source_image", "generated_image"]
+                    wandb_table = wandb.Table(columns=columns)
+                    
+                    for i, (prompt, src_img, gen_img) in enumerate(zip(prompt_list, [sample['source_img'] for sample in samples_to_use], [log_data[f"lora_sample_{i+1}/generated"] for i in range(len(prompt_list))])):
+                        # Add row to wandb table
+                        if isinstance(prompt, list) and len(prompt) > 0:
+                            # Handle nested prompts (common in the ACE model format)
+                            actual_prompt = prompt[0] if isinstance(prompt[0], str) else str(prompt[0])
+                        else:
+                            actual_prompt = str(prompt)
+                            
+                        wandb_table.add_data(
+                            i, 
+                            actual_prompt, 
+                            wandb.Image(src_img), 
+                            wandb.Image(gen_img)
+                        )
+                        
+                    wandb.log({
+                        "lora_samples_with_prompts": wandb_table, 
+                        "step": self.step
+                    })
+                
                 wandb.log(log_data)
                 self.logger.info(f"✅ LoRAWandbVizHook: Logged {successful_images}/{num_prompts} images to wandb at step {solver.iter}")
                 # Restore original mode outside the loop after all prompts are processed
@@ -427,6 +455,7 @@ def get_config_template():
             'NUM_INFERENCE_STEPS': 20,
             'GUIDANCE_SCALE': 4.5,
             'IMAGE_SIZE': 512,
-            'NUM_VAL_SAMPLES': 3
+            'NUM_VAL_SAMPLES': 3,
+            'LOG_PROMPTS': False
         }]
     })

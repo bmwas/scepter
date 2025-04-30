@@ -224,7 +224,29 @@ SOLVER:
       NUM_VAL_SAMPLES: 3,       # Number of validation samples to use
       NUM_INFERENCE_STEPS: 20,  # Faster sampling for visualization
       GUIDANCE_SCALE: 4.5,      # Standard guidance scale
-      IMAGE_SIZE: 512}          # Output image size
+      IMAGE_SIZE: 512,
+      LOG_PROMPTS: true,        # Log the prompts used for visualization
+      }
+      
+    # ---------------- File tracking and documentation ----------------
+    - {NAME: WandbFileTrackerHook, PRIORITY: 400,
+      TRACK_INTERVAL: 300,     # Check for new files every 5 minutes
+      WATCHED_DIRECTORIES: [
+        "./cache/save_data",   # Main save directory
+        "./cache/datasets/therapy_pair/images_therapist",  # CSV files directory
+      ],
+      SPECIFIC_FILES: [
+        "./scepter/methods/edit/wandb_dit_ace_0.6b_512.yaml"  # Configuration file
+      ],
+      FILE_EXTENSIONS: [
+        ".csv", ".yaml", ".yml", ".json", ".txt",  # Data and config files
+        ".pth", ".bin", ".pt",                    # Model weights
+        ".png", ".jpg", ".jpeg"                   # Generated images
+      ],
+      CREATE_RESULTS_ARTIFACT: true,
+      ARTIFACT_NAME: "training_files",
+      ARTIFACT_TYPE: "dataset",
+      ARTIFACT_DESCRIPTION: "Training configuration and dataset files"}
       
     # ---------------- images / probe data -----------------
     - {NAME: ProbeDataHook,       PROB_INTERVAL: 100}                        # keeps local saves

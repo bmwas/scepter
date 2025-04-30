@@ -54,6 +54,22 @@ class WandbFileTrackerHook(Hook):
             ],
             'description': 'List of directories to watch for new files'
         },
+        'SPECIFIC_FILES': {
+            'value': [],
+            'description': 'Specific individual files to track and upload to wandb'
+        },
+        'ARTIFACT_NAME': {
+            'value': 'training_files',
+            'description': 'Name of the artifact to create'
+        },
+        'ARTIFACT_TYPE': {
+            'value': 'dataset',
+            'description': 'Type of artifact to create (e.g., dataset, model, etc.)'
+        },
+        'ARTIFACT_DESCRIPTION': {
+            'value': 'Training files and configuration',
+            'description': 'Description of the artifact'
+        },
         'FILE_EXTENSIONS': {
             'value': [
                 # Model files
@@ -171,6 +187,11 @@ class WandbFileTrackerHook(Hook):
         # Ensure the cache/save_data directory is always included
         if './cache/save_data' not in self.watched_directories:
             self.watched_directories.append('./cache/save_data')
+        
+        self.specific_files = cfg.get('SPECIFIC_FILES', [])
+        self.artifact_name = cfg.get('ARTIFACT_NAME', 'training_files')
+        self.artifact_type = cfg.get('ARTIFACT_TYPE', 'dataset')
+        self.artifact_description = cfg.get('ARTIFACT_DESCRIPTION', 'Training files and configuration')
         
         self.file_extensions = cfg.get('FILE_EXTENSIONS', [
             # Model files
@@ -1439,3 +1460,32 @@ class WandbFileTrackerHook(Hook):
         except Exception:
             pass
         return os.walk(directory)
+
+    def after_solve(self, solver):
+        """Sync files at the end of training"""
+        if we.rank != 0:
+            return
+        
+        if wandb.run is None:
+            return
+            
+        # Final sync of all files
+        self._sync_files()
+        
+        # Log specific individual files
+        if self.specific_files:
+            artifact = wandb.Artifact(
+                name=f"{self.artifact_name}_final",
+                type=self.artifact_type,
+                description=f"{self.artifact_description} (final)"
+            )
+            
+            for file_path in self.specific_files:
+                if os.path.exists(file_path):
+                    artifact.add_file(file_path)
+                    self.logger.info(f"Added specific file to wandb artifact: {file_path}")
+                else:
+                    self.logger.warning(f"Specific file not found: {file_path}")
+            
+            wandb.run.log_artifact(artifact)
+            self.logger.info(f"Logged {len(self.specific_files)} specific files to wandb")

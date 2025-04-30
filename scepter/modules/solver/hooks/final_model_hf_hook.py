@@ -65,6 +65,10 @@ class FinalModelHFHook(Hook):
         'HUB_TOKEN': {
             'value': '',
             'description': 'Hugging Face Hub token'
+        },
+        'SAVE_LORA_ONLY': {
+            'value': False,
+            'description': 'Whether to only save/push LoRA adapter weights instead of full model'
         }
     }]
 
@@ -78,6 +82,7 @@ class FinalModelHFHook(Hook):
         self.hub_model_id = cfg.get('HUB_MODEL_ID', '')
         self.hub_private = cfg.get('HUB_PRIVATE', False)
         self.hub_token = cfg.get('HUB_TOKEN', os.environ.get('HUGGINGFACE_TOKEN', ''))
+        self.save_lora_only = cfg.get('SAVE_LORA_ONLY', False)
 
         # Try to load token from .env if not already present
         if not self.hub_token or not self.hub_token.startswith('hf_'):
@@ -128,8 +133,12 @@ class FinalModelHFHook(Hook):
         try:
             # Check if we should save at this step
             if solver.total_iter in self.save_on_steps:
-                solver.logger.info(f"Saving complete model at step {solver.total_iter}")
-                self._save_all_components(solver, step=solver.total_iter)
+                if self.save_lora_only:
+                    solver.logger.info(f"Saving LoRA adapters at step {solver.total_iter}")
+                    self._save_lora_adapters(solver, step=solver.total_iter)
+                else:
+                    solver.logger.info(f"Saving complete model at step {solver.total_iter}")
+                    self._save_all_components(solver, step=solver.total_iter)
         except Exception as e:
             solver.logger.warning(f"Error in FinalModelHFHook.after_iter: {e}")
 
@@ -139,11 +148,19 @@ class FinalModelHFHook(Hook):
             return
             
         try:
-            solver.logger.info("Training complete. Saving final model with all components...")
-            self._save_all_components(solver, is_final=True)
+            if self.save_lora_only:
+                solver.logger.info("Training complete. Saving LoRA adapter weights...")
+                self._save_lora_adapters(solver, is_final=True)
+            else:
+                solver.logger.info("Training complete. Saving final model with all components...")
+                self._save_all_components(solver, is_final=True)
+            
             # Only push to Hugging Face Hub if configured, and do NOT log to wandb
-            if self.push_to_hub and self.hub_model_id:
+            if self.push_to_hub and self.hub_model_id and not self.save_lora_only:
                 self._push_to_huggingface(solver)
+            elif self.push_to_hub and self.hub_model_id and self.save_lora_only:
+                self._push_lora_to_huggingface(solver)
+                
             solver.logger.info("FinalModelHFHook: Completed all tasks successfully.")
         except Exception as e:
             solver.logger.warning(f"Error in FinalModelHFHook.after_solve: {e}")
@@ -563,6 +580,123 @@ class FinalModelHFHook(Hook):
         except Exception as e:
             solver.logger.error(f"Error while copying to local directory for upload: {e}")
             return False
+
+    def _save_lora_adapters(self, solver, step=None, is_final=False):
+        """Save LoRA adapter weights to the output directory."""
+        # Determine output path
+        if is_final:
+            output_path = self.full_output_dir
+        else:
+            output_path = osp.join(self.full_output_dir, f"step_{step}")
+        
+        solver.logger.info(f"Saving LoRA adapter weights to {output_path}")
+        FS.make_dir(output_path)
+        
+        # Find and save the LoRA adapter weights
+        try:
+            # Get the model with LoRA adapters
+            model = solver.model
+            if hasattr(model, 'module'):
+                model = model.module
+                
+            # Check if it's a SwiftModel from the swift library
+            from swift import SwiftModel
+            if isinstance(model, SwiftModel):
+                # Get work directory and checkpoint directory
+                work_dir = solver.cfg.WORK_DIR
+                checkpoints_dir = osp.join(work_dir, 'checkpoints')
+                
+                # Find the latest checkpoint with LoRA weights
+                import glob
+                checkpoint_dirs = []
+                with FS.get_dir_to_local_dir(checkpoints_dir, wait_finish=True) as local_checkpoints_dir:
+                    checkpoint_dirs = sorted(glob.glob(osp.join(local_checkpoints_dir, f"{self.save_name_prefix}-*")))
+                
+                if not checkpoint_dirs:
+                    solver.logger.warning("No checkpoint directories found for LoRA weights")
+                    return
+                
+                # Use the latest checkpoint
+                latest_checkpoint = checkpoint_dirs[-1]
+                solver.logger.info(f"Using LoRA weights from: {latest_checkpoint}")
+                
+                # Copy all adapter files to output directory
+                if osp.exists(latest_checkpoint):
+                    import shutil
+                    for file in os.listdir(latest_checkpoint):
+                        src_file = osp.join(latest_checkpoint, file)
+                        dst_file = osp.join(output_path, file)
+                        if osp.isfile(src_file):
+                            shutil.copy2(src_file, dst_file)
+                    
+                    solver.logger.info(f"Copied LoRA adapter weights to: {output_path}")
+                else:
+                    solver.logger.warning(f"Checkpoint directory not found: {latest_checkpoint}")
+            else:
+                solver.logger.warning("Model is not a SwiftModel, cannot extract LoRA adapters")
+        except ImportError:
+            solver.logger.error("Swift library not found, cannot save LoRA adapters")
+        except Exception as e:
+            solver.logger.error(f"Error saving LoRA adapters: {e}")
+   
+    def _push_lora_to_huggingface(self, solver):
+        """Push the LoRA adapters to Hugging Face Hub."""
+        # Ensure authentication
+        if not self._huggingface_login(solver):
+            solver.logger.error("Aborting push: not authenticated with Hugging Face.")
+            return
+            
+        if not self.hub_model_id:
+            solver.logger.warning("Cannot push to Hugging Face: No model ID specified")
+            return
+            
+        if not self.hub_token:
+            solver.logger.warning("Cannot push to Hugging Face: No token provided")
+            return
+            
+        solver.logger.info(f"Pushing LoRA adapters to Hugging Face Hub: {self.hub_model_id}")
+        
+        try:
+            # Get a local copy of the LoRA output directory
+            local_dir = tempfile.mkdtemp()
+            solver.logger.info(f"Created temporary directory for LoRA upload: {local_dir}")
+            
+            # Copy all files from the full_output_dir to local_dir
+            import shutil
+            for item in FS.list_dir(self.full_output_dir):
+                if item['type'] == 'file':
+                    src_path = osp.join(self.full_output_dir, item['name'])
+                    with FS.get_from(src_path, wait_finish=True) as local_file:
+                        dst_path = osp.join(local_dir, item['name'])
+                        shutil.copy2(local_file, dst_path)
+            
+            # Upload using huggingface_hub
+            api = HfApi()
+            solver.logger.info("Creating (or accessing) repository for LoRA adapters...")
+            api.create_repo(
+                repo_id=self.hub_model_id,
+                private=self.hub_private,
+                token=self.hub_token,
+                exist_ok=True
+            )
+            
+            # Upload all files in the directory
+            solver.logger.info("Uploading LoRA adapters to Hugging Face...")
+            commit_info = api.upload_folder(
+                folder_path=local_dir,
+                repo_id=self.hub_model_id,
+                token=self.hub_token
+            )
+            # Robustly log commit hash/id regardless of hf_hub version
+            commit_hash = getattr(commit_info, 'commit_hash', getattr(commit_info, 'commit_id', 'unknown'))
+            solver.logger.info(f"Upload complete. Commit: {commit_hash}")
+            
+            # Clean up
+            shutil.rmtree(local_dir)
+            
+            solver.logger.info(f"Successfully pushed LoRA adapters to Hugging Face Hub: {self.hub_model_id}")
+        except Exception as e:
+            solver.logger.error(f"Failed to push LoRA adapters to Hugging Face Hub: {e}")
 
     @staticmethod
     def get_config_template():
