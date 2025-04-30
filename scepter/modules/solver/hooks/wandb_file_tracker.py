@@ -435,7 +435,7 @@ class WandbFileTrackerHook(Hook):
             # self._discover_artifact_directories(solver)
             
             # Final scan for new files in all watched directories
-            self._scan_directories(solver)
+            self._scan_directories(solver, max_files=None)
             
             # Log all artifacts
             # self._log_artifacts(solver, is_final=True)
@@ -1470,7 +1470,7 @@ class WandbFileTrackerHook(Hook):
             return
             
         # Final sync of all files
-        self._sync_files()
+        self._scan_directories(solver, max_files=None)
         
         # Log specific individual files
         if self.specific_files:
