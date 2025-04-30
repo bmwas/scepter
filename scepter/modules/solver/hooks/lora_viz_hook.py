@@ -133,18 +133,26 @@ class LoRAWandbVizHook(Hook):
                         else:
                             batch_data['image_size'] = [self.image_size, self.image_size]
                     
-                    # Add batch_data to a list because that's what run_step_test expects
-                    batch_list = [batch_data]
+                    # Transfer the batch data to CUDA
+                    # Make sure each tensor is on the right device
+                    for k, v in batch_data.items():
+                        if isinstance(v, torch.Tensor):
+                            batch_data[k] = v.to(device)
+                        elif isinstance(v, list):
+                            if all(isinstance(item, torch.Tensor) for item in v):
+                                batch_data[k] = [item.to(device) for item in v]
+                            elif all(isinstance(sublist, list) for sublist in v) and all(isinstance(item, torch.Tensor) for sublist in v for item in sublist):
+                                batch_data[k] = [[item.to(device) for item in sublist] for sublist in v]
                     
-                    # Transfer the batch data to CUDA and prepare it for the model
-                    batch_list = transfer_data_to_cuda([batch_data])
+                    # Log the batch data structure for debugging
+                    self.logger.info(f"✅ LoRAWandbVizHook: Batch data keys: {list(batch_data.keys())}")
                     
-                    # Run inference using solver.run_step_test without any special parameters
+                    # Run inference with solver.run_step_test - use the batch data directly, not as a list
                     with torch.no_grad():
                         try:
-                            # Call run_step_test with simple batch list
-                            results = solver.run_step_test(batch_list)
-                            self.logger.info(f"✅ LoRAWandbVizHook: Results type: {type(results)}, length: {len(results) if isinstance(results, list) else 'N/A'}")
+                            # The model might expect a dictionary, not a list of dictionaries
+                            results = solver.run_step_test(batch_data)
+                            self.logger.info(f"✅ LoRAWandbVizHook: Results type: {type(results)}")
                         except Exception as e:
                             self.logger.error(f"❌ LoRAWandbVizHook: Run step test failed: {str(e)}")
                             self.logger.error(traceback.format_exc())
