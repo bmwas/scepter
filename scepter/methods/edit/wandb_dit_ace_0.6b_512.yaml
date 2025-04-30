@@ -189,7 +189,7 @@ SOLVER:
 
     # ---------------- checkpoints & metrics ----------------
     - {NAME: CheckpointHook, INTERVAL: 500, PRIORITY: 300,
-      MAX_TO_KEEP: 2,
+      MAX_TO_KEEP: 1,
       PUSH_TO_HUB: false,
       HUB_MODEL_ID: "Benson/ace-model-0.6b-512",
       HUB_PRIVATE: false,
