@@ -14,6 +14,8 @@ import numpy as np
 import torch
 import wandb
 from PIL import Image
+import shutil
+import time
 
 from scepter.modules.model.registry import MODELS
 from scepter.modules.solver.hooks.hook import Hook
@@ -39,6 +41,8 @@ class LoRAWandbVizHook(Hook):
         self.image_size = cfg.get('IMAGE_SIZE', 512)
         self.num_val_samples = cfg.get('NUM_VAL_SAMPLES', 3)
         self.log_prompts = cfg.get('LOG_PROMPTS', False)
+        self.save_validation_samples = cfg.get('SAVE_VALIDATION_SAMPLES', True)
+        self.validation_samples_dir = cfg.get('VALIDATION_SAMPLES_DIR', 'validation_samples')
         
         # CSV validation data info (will be populated from solver config)
         self.csv_path = None
@@ -305,6 +309,30 @@ class LoRAWandbVizHook(Hook):
         if len(samples) == 0:
             return
 
+        # Create a folder to store validation samples with original filenames
+        if self.save_validation_samples:
+            # Create validation samples directory in work_dir
+            validation_dir = os.path.join(os.getcwd(), self.validation_samples_dir)
+            os.makedirs(validation_dir, exist_ok=True)
+            self.logger.info(f"📁 Created validation samples directory: {validation_dir}")
+            
+            # Copy the CSV file to the validation directory
+            if self.csv_path and os.path.exists(self.csv_path):
+                try:
+                    csv_filename = os.path.basename(self.csv_path)
+                    dst_csv_path = os.path.join(validation_dir, csv_filename)
+                    shutil.copy2(self.csv_path, dst_csv_path)
+                    self.logger.info(f"📄 Copied validation CSV to: {dst_csv_path}")
+                    
+                    # Also save it with a timestamp for uniqueness
+                    timestamped_csv = os.path.join(validation_dir, f"validation_{int(time.time())}.csv")
+                    shutil.copy2(self.csv_path, timestamped_csv)
+                except Exception as csv_e:
+                    self.logger.warning(f"⚠️ Error copying CSV file: {csv_e}")
+            
+            # If we have file paths in our validation data, copy those files too
+            self._save_validation_files_with_original_names(samples, validation_dir)
+
         # Create a table for the validation samples
         columns = ["sample_idx", "prompt", "source_image", "target_image"]
         validation_table = wandb.Table(columns=columns)
@@ -361,6 +389,98 @@ class LoRAWandbVizHook(Hook):
                     "original_validation_samples": validation_table,
                     "step": step
                 })
+
+    def _save_validation_files_with_original_names(self, samples, output_dir):
+        """Save validation files with their original filenames to the output directory."""
+        try:
+            # Try to get the original dataframe first to extract filenames
+            if self.csv_path and os.path.exists(self.csv_path):
+                df = pd.read_csv(self.csv_path)
+                
+                # Only keep a few samples based on num_val_samples
+                df = df.head(self.num_val_samples)
+                
+                # Create subdirectories for sources and targets
+                sources_dir = os.path.join(output_dir, "sources")
+                targets_dir = os.path.join(output_dir, "targets")
+                os.makedirs(sources_dir, exist_ok=True)
+                os.makedirs(targets_dir, exist_ok=True)
+                
+                # Check for required columns
+                if 'Source:FILE' in df.columns:
+                    # Copy source files with original names
+                    for idx, row in df.iterrows():
+                        source_path = os.path.join(self.image_root_dir, row['Source:FILE'])
+                        source_filename = os.path.basename(row['Source:FILE'])
+                        
+                        if os.path.exists(source_path):
+                            # Save with original filename
+                            dst_path = os.path.join(sources_dir, source_filename)
+                            shutil.copy2(source_path, dst_path)
+                            self.logger.info(f"🖼️ Saved source image: {dst_path}")
+                            
+                            # Also save as PNG for better viewing
+                            png_path = os.path.splitext(dst_path)[0] + ".png"
+                            img = Image.open(source_path).convert('RGB')
+                            img.save(png_path, "PNG")
+                        else:
+                            self.logger.warning(f"⚠️ Source image not found: {source_path}")
+                
+                # Copy target files if available
+                if 'Target:FILE' in df.columns:
+                    for idx, row in df.iterrows():
+                        target_path = os.path.join(self.image_root_dir, row['Target:FILE'])
+                        target_filename = os.path.basename(row['Target:FILE'])
+                        
+                        if os.path.exists(target_path):
+                            # Save with original filename
+                            dst_path = os.path.join(targets_dir, target_filename)
+                            shutil.copy2(target_path, dst_path)
+                            self.logger.info(f"🖼️ Saved target image: {dst_path}")
+                            
+                            # Also save as PNG for better viewing
+                            png_path = os.path.splitext(dst_path)[0] + ".png"
+                            img = Image.open(target_path).convert('RGB')
+                            img.save(png_path, "PNG")
+                        else:
+                            self.logger.warning(f"⚠️ Target image not found: {target_path}")
+                
+                # Save prompt information
+                if 'Prompt' in df.columns:
+                    prompts_file = os.path.join(output_dir, "prompts.txt")
+                    with open(prompts_file, 'w') as f:
+                        for idx, row in df.iterrows():
+                            source_filename = os.path.basename(row['Source:FILE']) if 'Source:FILE' in df.columns else f"sample_{idx}"
+                            f.write(f"Sample {idx} ({source_filename}): {row['Prompt']}\n\n")
+                    self.logger.info(f"📝 Saved prompts to: {prompts_file}")
+            else:
+                # If CSV is not available, try saving the tensors directly
+                for i, sample in enumerate(samples):
+                    # Create a filename based on index
+                    source_filename = f"source_sample_{i}.png"
+                    target_filename = f"target_sample_{i}.png"
+                    
+                    # Convert tensors to PIL images and save
+                    source_img = sample['source_img']
+                    if isinstance(source_img, torch.Tensor):
+                        source_img = source_img.permute(1, 2, 0).cpu().numpy() * 255
+                        source_img = Image.fromarray(source_img.astype(np.uint8))
+                        source_img.save(os.path.join(output_dir, source_filename))
+                    
+                    target_img = sample['image']
+                    if isinstance(target_img, torch.Tensor):
+                        target_img = target_img.permute(1, 2, 0).cpu().numpy() * 255
+                        target_img = Image.fromarray(target_img.astype(np.uint8))
+                        target_img.save(os.path.join(output_dir, target_filename))
+                    
+                    # Save prompt information
+                    prompt = sample.get('prompt', 'No prompt available')
+                    with open(os.path.join(output_dir, f"prompt_sample_{i}.txt"), 'w') as f:
+                        f.write(f"{prompt}")
+
+        except Exception as e:
+            self.logger.error(f"❌ Error saving validation files: {e}")
+            self.logger.error(traceback.format_exc())
 
     def _load_validation_data(self, solver):
         """
@@ -561,6 +681,8 @@ def get_config_template():
             'GUIDANCE_SCALE': 4.5,
             'IMAGE_SIZE': 512,
             'NUM_VAL_SAMPLES': 3,
-            'LOG_PROMPTS': False
+            'LOG_PROMPTS': False,
+            'SAVE_VALIDATION_SAMPLES': True,
+            'VALIDATION_SAMPLES_DIR': 'validation_samples'
         }]
     })
