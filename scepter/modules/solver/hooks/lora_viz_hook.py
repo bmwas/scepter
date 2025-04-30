@@ -167,8 +167,8 @@ class LoRAWandbVizHook(Hook):
                     
                     # Add our specific parameters
                     batch_data.update({
-                        'prompt': [prompt],  # Must be a list
-                        'n_prompt': [""],    # Empty negative prompt
+                        'prompt': [[prompt]],  # Must be a list of lists
+                        'n_prompt': [[""]],    # Empty negative prompt as list of lists
                         'sampler': 'ddim',
                         'sample_steps': self.num_inference_steps,
                         'guide_scale': self.guidance_scale,
