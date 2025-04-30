@@ -142,62 +142,85 @@ class LoRAWandbVizHook(Hook):
     
     def _generate_images_with_current_lora(self, solver):
         """Generate images using the current LoRA adapter state."""
-        # Set model to eval mode temporarily for inference
-        solver.model.eval()
-        
         # Initialize return dictionary for images
         result_images = {}
         
         try:
             solver.logger.info(f"📝 LoRAWandbVizHook: Preparing to generate images with {len(self.prompts)} prompts")
             
+            # Temporarily set solver to test mode
+            saved_mode = solver.mode
+            solver.test_mode()
+            solver.logger.info(f"🔄 LoRAWandbVizHook: Temporarily switched solver to test mode (was: {saved_mode})")
+            
             with torch.no_grad():
-                with torch.autocast(device_type='cuda', enabled=solver.use_amp, dtype=solver.dtype):
-                    # Generate images for each prompt
-                    for i, prompt in enumerate(self.prompts):
-                        solver.logger.info(f"🖼️ LoRAWandbVizHook: Generating image [{i+1}/{len(self.prompts)}] with prompt: '{prompt}'")
+                # Process all prompts
+                for i, prompt in enumerate(self.prompts):
+                    solver.logger.info(f"🖼️ LoRAWandbVizHook: Generating image [{i+1}/{len(self.prompts)}] with prompt: '{prompt}'")
+                    
+                    # Prepare batch data exactly like in run_inference.py
+                    batch_data = {}
+                    
+                    # Add sample args if available
+                    if solver.sample_args:
+                        batch_data.update(solver.sample_args.get_lowercase_dict())
+                    
+                    # Add our specific parameters
+                    batch_data.update({
+                        'prompt': [prompt],  # Must be a list
+                        'n_prompt': [""],    # Empty negative prompt
+                        'sampler': 'ddim',
+                        'sample_steps': self.num_inference_steps,
+                        'guide_scale': self.guidance_scale,
+                        'guide_rescale': 0.5,
+                        'image_size': self.image_size,
+                        'seed': 42,  # Fixed seed for reproducibility
+                    })
+                    
+                    # Log what we're doing
+                    solver.logger.info(f"🧠 LoRAWandbVizHook: Running inference with keys: {list(batch_data.keys())}")
+                    
+                    try:
+                        # Run inference exactly like in run_inference.py
+                        with torch.autocast(device_type='cuda', enabled=solver.use_amp, dtype=solver.dtype):
+                            cuda_batch_data = transfer_data_to_cuda(batch_data)
+                            ret = solver.run_step_test(cuda_batch_data)
+                            solver.logger.info(f"✅ LoRAWandbVizHook: Generated {len(ret)} images")
                         
-                        sample_args = {
-                            'sampler': 'ddim',
-                            'sample_steps': self.num_inference_steps,
-                            'guide_scale': self.guidance_scale,
-                            'guide_rescale': 0.5,
-                        }
-                        
-                        # Create inference batch data
-                        batch_data = {
-                            'instruction': prompt,
-                            'image_size': self.image_size,
-                        }
-                        batch_data.update(sample_args)
-                        
-                        # Run inference
-                        solver.logger.info(f"🧠 LoRAWandbVizHook: Running inference for prompt '{prompt[:30]}...'")
-                        result = solver.model.inference(transfer_data_to_cuda(batch_data))
-                        
-                        # Extract generated image
-                        if 'edit_image' in result and result['edit_image'] is not None:
-                            for j, edit_img in enumerate(result['edit_image']):
-                                if edit_img is not None:
-                                    # Convert to numpy uint8 format (0-255)
-                                    solver.logger.info(f"✅ LoRAWandbVizHook: Successfully generated image for prompt {i+1}")
-                                    img_np = (edit_img.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-                                    result_images[f"prompt_{i}_{j}"] = {
-                                        'image': img_np,
-                                        'prompt': prompt
-                                    }
-                                else:
-                                    solver.logger.warning(f"⚠️ LoRAWandbVizHook: Got None image for prompt {i+1}, output {j}")
-                        else:
-                            solver.logger.warning(f"⚠️ LoRAWandbVizHook: No 'edit_image' in result for prompt '{prompt[:30]}...'")
-                            solver.logger.info(f"ℹ️ LoRAWandbVizHook: Result keys: {list(result.keys())}")
+                        # Process results - similar to run_inference.py but save to our dictionary
+                        for idx, out in enumerate(ret):
+                            if 'image' in out:
+                                # Convert image to numpy format
+                                img = out['image']
+                                img_np = img.permute(1, 2, 0).cpu().numpy() * 255
+                                img_np = img_np.astype(np.uint8)
+                                
+                                # Store in our results dictionary
+                                key = f"prompt_{i}_sample_{idx}"
+                                result_images[key] = {
+                                    'image': img_np,
+                                    'prompt': prompt
+                                }
+                                solver.logger.info(f"✅ LoRAWandbVizHook: Added image {key} to results")
+                            else:
+                                solver.logger.warning(f"⚠️ LoRAWandbVizHook: No 'image' in result[{idx}]")
+                                if out:
+                                    solver.logger.info(f"ℹ️ LoRAWandbVizHook: Available keys: {list(out.keys())}")
+                    
+                    except Exception as e:
+                        solver.logger.error(f"❌ LoRAWandbVizHook: Error during inference: {e}")
+                        import traceback
+                        solver.logger.error(traceback.format_exc())
+            
+            # Restore original mode
+            if saved_mode == 'train':
+                solver.train_mode()
+                solver.logger.info(f"🔄 LoRAWandbVizHook: Restored solver to train mode")
+            
         except Exception as e:
             solver.logger.error(f"❌ LoRAWandbVizHook GENERATION ERROR: {str(e)}")
             import traceback
             solver.logger.error(traceback.format_exc())
-        
-        # Restore model to training mode
-        solver.model.train()
         
         # Log summary of results
         if result_images:
