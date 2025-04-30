@@ -6,6 +6,7 @@ import os
 import logging
 import random
 import traceback
+import csv
 from typing import Dict, List, Any, Optional, Union
 
 import numpy as np
@@ -36,6 +37,11 @@ class LoRAWandbVizHook(Hook):
         self.guidance_scale = cfg.get('GUIDANCE_SCALE', 4.5)
         self.image_size = cfg.get('IMAGE_SIZE', 512)
         self.num_val_samples = cfg.get('NUM_VAL_SAMPLES', 3)
+        
+        # CSV validation data info (will be populated from solver config)
+        self.csv_path = None
+        self.image_root_dir = None
+        self.val_samples = None
         
         self.step = 0
         self.logger.info(f"📋 LoRAWandbVizHook initialized: Will visualize at step {self.viz_start} and every {self.viz_interval} steps after")
@@ -80,41 +86,43 @@ class LoRAWandbVizHook(Hook):
             log_data = {'step': self.step}
             successful_images = 0
             
-            # Use predefined prompts since we don't have validation data
-            prompts = [
-                "Draw a big house with a pointy roof in a scribble style",
-                "Draw a simple house with a doodle",
-                "Draw a scribble of a mountain with a long slope"
-            ]
+            # Load validation data from CSV
+            val_data = self._load_validation_data(solver)
             
-            # Process each prompt
-            for i, prompt_text in enumerate(prompts[:self.num_val_samples]):
-                self.logger.info(f"🖼️ LoRAWandbVizHook: Processing prompt {i+1}/{min(len(prompts), self.num_val_samples)}")
-                self.logger.info(f"📝 LoRAWandbVizHook: Using prompt: '{prompt_text}'")
+            # Process each validation sample
+            for i, sample in enumerate(val_data[:self.num_val_samples]):
+                self.logger.info(f"🖼️ LoRAWandbVizHook: Processing sample {i+1}/{min(len(val_data), self.num_val_samples)}")
+                self.logger.info(f"📝 LoRAWandbVizHook: Using prompt: '{sample['prompt']}'")
                 
                 try:
-                    # Create a blank image as input (just like in the sample code)
-                    blank_size = 128 if isinstance(self.image_size, int) and self.image_size > 128 else 64
-                    blank_image = torch.zeros(3, blank_size, blank_size, device='cuda')
-                    
                     # Prepare inference parameters directly for the model
                     # Following the pattern from the shared sample code
                     self.logger.info("🧠 LoRAWandbVizHook: Using solver.run_step_test for inference")
                     
+                    # Get the device from the solver
+                    device = next(solver.model.parameters()).device
+                    
+                    # Move input data to the right device
+                    source_image = sample['image'].to(device)
+                    mask = sample['mask'].to(device)
+                    
+                    # Log shape information for debugging
+                    self.logger.info(f"🧠 LoRAWandbVizHook: Input image shape: {source_image.shape}, device: {source_image.device}")
+                    
                     # Create the input data exactly according to ACE model requirements
                     # The key is ensuring src_image_list, src_mask_list, and prompt all have the same length and structure
                     batch_data = {
-                        'prompt': [[prompt_text]],  # Nested list format [[prompt1]]
-                        'n_prompt': [[""]],         # Empty negative prompt in same format
-                        'src_image_list': [[blank_image]],  # Matching structure [[img1]]
-                        'src_mask_list': [[torch.ones(1, blank_size, blank_size, device='cuda')]],  # Matching structure [[mask1]]
+                        'prompt': [[sample['prompt']]],  # Nested list format [[prompt1]]
+                        'n_prompt': [[""]],               # Empty negative prompt in same format
+                        'src_image_list': [[source_image]],  # Matching structure [[img1]]
+                        'src_mask_list': [[mask]],          # Matching structure [[mask1]]
                         'sampler': 'ddim',
                         'sample_steps': self.num_inference_steps,
                         'guide_scale': self.guidance_scale,
-                        'guide_rescale': 0.5,
+                        'show_process': False,
                         'seed': 42,
-                        'image': [blank_image],  # Regular image parameter
-                        'image_mask': [torch.ones(1, blank_size, blank_size, device='cuda')],  # Regular mask parameter
+                        'image': [source_image],  # Regular image parameter
+                        'image_mask': [mask],     # Regular mask parameter
                     }
                     
                     # Add image size if needed
@@ -124,40 +132,72 @@ class LoRAWandbVizHook(Hook):
                         else:
                             batch_data['image_size'] = [self.image_size, self.image_size]
                     
-                    # Use same method as in run_inference.py
-                    with torch.no_grad():
-                        with torch.autocast("cuda", enabled=True, dtype=solver.dtype):
-                            batch_data = transfer_data_to_cuda(batch_data)
-                            results = solver.run_step_test(batch_data)
+                    # Add batch_data to a list because that's what run_step_test expects
+                    batch_list = [batch_data]
                     
-                    # Extract the generated image
-                    generated_img = None
-                    for out in results:
-                        if 'image' in out:
-                            generated_img = out['image']
-                            break
-                            
-                    if generated_img is not None:
+                    # Transfer the batch data to CUDA and prepare it for the model
+                    batch_list = transfer_data_to_cuda([batch_data])
+                    
+                    # Run inference using solver.run_step_test
+                    with torch.no_grad():
+                        with torch.autocast("cuda"):
+                            try:
+                                result = solver.run_step_test(batch_list, return_output=True)
+                                self.logger.info(f"✅ LoRAWandbVizHook: Result keys: {result.keys() if isinstance(result, dict) else 'Not a dict'}")
+                            except Exception as e:
+                                self.logger.error(f"❌ LoRAWandbVizHook: Run step test failed: {str(e)}")
+                                self.logger.error(traceback.format_exc())
+                                continue
+                    
+                    # Check for valid output - try different possible output key names
+                    output_image = None
+                    possible_keys = ['image', 'images', 'gen_imgs', 'generated_images', 'output']
+                    
+                    for key in possible_keys:
+                        if key in result and result[key] is not None:
+                            if isinstance(result[key], list) and len(result[key]) > 0:
+                                output_image = result[key][0]
+                                self.logger.info(f"✅ LoRAWandbVizHook: Found image in result['{key}']")
+                                break
+                            elif isinstance(result[key], torch.Tensor):
+                                output_image = result[key]
+                                self.logger.info(f"✅ LoRAWandbVizHook: Found tensor in result['{key}']")
+                                break
+                    
+                    # Check if we have a valid output image
+                    if output_image is not None:
+                        # Get the image from the result
+                        generated_img = output_image
+                        
                         # Convert to numpy for logging
                         gen_np = generated_img.permute(1, 2, 0).cpu().numpy()
                         gen_np = (gen_np * 255).astype(np.uint8)
                         
+                        # Convert source and target tensors to numpy for wandb
+                        src_np = sample['source_img'].permute(1, 2, 0).cpu().numpy()
+                        src_np = (src_np * 255).astype(np.uint8)
+                        
+                        tgt_np = sample['target_img'].permute(1, 2, 0).cpu().numpy()
+                        tgt_np = (tgt_np * 255).astype(np.uint8)
+                        
                         # Create log data for this sample
                         sample_data = {
-                            f"lora_viz_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
-                            f"lora_viz_{i+1}/prompt": prompt_text
+                            f"val_sample_{i+1}/source": wandb.Image(src_np, caption=f"Source"),
+                            f"val_sample_{i+1}/target": wandb.Image(tgt_np, caption=f"Target"),
+                            f"val_sample_{i+1}/generated": wandb.Image(gen_np, caption=f"Generated"),
+                            f"val_sample_{i+1}/prompt": sample['prompt']
                         }
                         
                         # Add to log data
                         log_data.update(sample_data)
                         successful_images += 1
-                        self.logger.info(f"✅ LoRAWandbVizHook: Generated image for prompt {i+1}")
+                        self.logger.info(f"✅ LoRAWandbVizHook: Generated image for sample {i+1}")
                     else:
-                        self.logger.error(f"❌ LoRAWandbVizHook: No 'image' in results")
+                        self.logger.error(f"❌ LoRAWandbVizHook: No valid output image found")
                         continue
                     
                 except Exception as e:
-                    self.logger.error(f"❌ LoRAWandbVizHook: Error processing prompt: {str(e)}")
+                    self.logger.error(f"❌ LoRAWandbVizHook: Error processing sample: {str(e)}")
                     self.logger.error(traceback.format_exc())
             
             # Restore original mode
@@ -192,6 +232,83 @@ class LoRAWandbVizHook(Hook):
                 solver.val_mode()
             
             return False
+
+    def _load_validation_data(self, solver):
+        """
+        Load validation data from CSV file using the path from the config
+        Format: Source:FILE, Target:FILE, Prompt
+        """
+        # Use the paths from the solver's data config
+        if self.csv_path is None:
+            # Try to get paths from solver config
+            try:
+                if hasattr(solver, 'cfg') and solver.cfg.get('DATA') and solver.cfg.DATA.get('VAL_DATA'):
+                    val_cfg = solver.cfg.DATA.VAL_DATA
+                    self.csv_path = val_cfg.get('CSV_PATH', './cache/datasets/therapy_pair/images_therapist/validation.csv')
+                    self.image_root_dir = val_cfg.get('IMAGE_ROOT_DIR', './cache/datasets/therapy_pair')
+                    self.logger.info(f"📊 LoRAWandbVizHook: Using validation CSV: {self.csv_path}")
+                    self.logger.info(f"📊 LoRAWandbVizHook: Using image root dir: {self.image_root_dir}")
+                else:
+                    # Default to paths from YAML file
+                    self.csv_path = './cache/datasets/therapy_pair/images_therapist/validation.csv'
+                    self.image_root_dir = './cache/datasets/therapy_pair'
+                    self.logger.info(f"📊 LoRAWandbVizHook: Using default validation CSV: {self.csv_path}")
+            except Exception as e:
+                self.logger.error(f"❌ LoRAWandbVizHook: Error accessing config: {str(e)}")
+                # Hardcode the path from the YAML file as fallback
+                self.csv_path = './cache/datasets/therapy_pair/images_therapist/validation.csv'
+                self.image_root_dir = './cache/datasets/therapy_pair'
+        
+        if not os.path.exists(self.csv_path):
+            self.logger.error(f"❌ LoRAWandbVizHook: CSV file not found: {self.csv_path}")
+            return []
+        
+        val_data = []
+        try:
+            # CSV is tab-delimited based on the sample
+            with open(self.csv_path, 'r') as f:
+                reader = csv.DictReader(f, delimiter='\t')
+                for row in reader:
+                    # Get source and target paths
+                    source_path = os.path.join(self.image_root_dir, row['Source:FILE'])
+                    target_path = os.path.join(self.image_root_dir, row['Target:FILE'])
+                    prompt = row['Prompt']
+                    
+                    self.logger.info(f"📊 LoRAWandbVizHook: Loading source: {source_path}")
+                    self.logger.info(f"📊 LoRAWandbVizHook: Loading target: {target_path}")
+                    
+                    try:
+                        # Load source and target images
+                        source_img = Image.open(source_path).convert('RGB')
+                        target_img = Image.open(target_path).convert('RGB')
+                        
+                        # Convert to tensors
+                        source_tensor = torch.from_numpy(np.array(source_img).transpose(2, 0, 1)) / 255.0
+                        target_tensor = torch.from_numpy(np.array(target_img).transpose(2, 0, 1)) / 255.0
+                        
+                        # Create a blank mask (all ones)
+                        mask_tensor = torch.ones(1, source_tensor.shape[1], source_tensor.shape[2])
+                        
+                        # Make sure dimensions match what the model expects
+                        if source_tensor.shape[1] != source_tensor.shape[2]:
+                            self.logger.warning(f"⚠️ LoRAWandbVizHook: Image dimensions not square: {source_tensor.shape}")
+                        
+                        val_data.append({
+                            'prompt': prompt,
+                            'source_img': source_tensor,
+                            'target_img': target_tensor,
+                            'image': source_tensor,  # Use source as input image
+                            'mask': mask_tensor  # Full mask (no masking)
+                        })
+                    except Exception as e:
+                        self.logger.error(f"❌ LoRAWandbVizHook: Error loading images: {str(e)}")
+                        continue
+        except Exception as e:
+            self.logger.error(f"❌ LoRAWandbVizHook: Error reading CSV: {str(e)}")
+            self.logger.error(traceback.format_exc())
+        
+        self.logger.info(f"📊 LoRAWandbVizHook: Loaded {len(val_data)} validation samples")
+        return val_data
 
 def get_config_template():
     return dict_to_yaml({
