@@ -50,7 +50,7 @@ SOLVER:
       NAME: SwiftLoRA
       R: 32
       LORA_ALPHA: 64  # Increased from 128 to amplify gradient signals
-      LORA_DROPOUT: 0.05  # Reduced from 0.1 to prevent too much regularization early
+      LORA_DROPOUT: 0.1  # Reduced from 0.1 to prevent too much regularization early
       BIAS: "none"
       TARGET_MODULES:
         - "attn.q"
