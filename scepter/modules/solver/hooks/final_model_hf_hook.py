@@ -173,6 +173,9 @@ class FinalModelHFHook(Hook):
         else:
             output_path = osp.join(self.full_output_dir, f"step_{step}")
         
+        solver.logger.info(f"Saving all model components to {output_path}")
+        FS.make_dir(output_path)
+        
         # Use the new robust copy/update method
         self._copy_original_and_update(solver, output_path)
         # Do NOT log to wandb here; only export for HF
@@ -598,44 +601,193 @@ class FinalModelHFHook(Hook):
             model = solver.model
             if hasattr(model, 'module'):
                 model = model.module
-                
+            
+            # Try to extract LoRA weights directly first
+            lora_files_copied = False
+            
             # Check if it's a SwiftModel from the swift library
-            from swift import SwiftModel
-            if isinstance(model, SwiftModel):
-                # Get work directory and checkpoint directory
+            try:
+                from swift import SwiftModel
+                if isinstance(model, SwiftModel):
+                    # Get work directory and checkpoint directory
+                    work_dir = solver.cfg.WORK_DIR
+                    checkpoints_dir = osp.join(work_dir, 'checkpoints')
+                    
+                    # Find the latest checkpoint with LoRA weights
+                    import glob
+                    checkpoint_dirs = []
+                    with FS.get_dir_to_local_dir(checkpoints_dir, wait_finish=True) as local_checkpoints_dir:
+                        checkpoint_dirs = sorted(glob.glob(osp.join(local_checkpoints_dir, f"{self.save_name_prefix}-*")))
+                    
+                    if not checkpoint_dirs:
+                        solver.logger.warning("No checkpoint directories found for LoRA weights")
+                    else:
+                        # Use the latest checkpoint
+                        latest_checkpoint = checkpoint_dirs[-1]
+                        solver.logger.info(f"Using LoRA weights from: {latest_checkpoint}")
+                        
+                        # Copy all adapter files to output directory
+                        if osp.exists(latest_checkpoint):
+                            import shutil
+                            for file in os.listdir(latest_checkpoint):
+                                src_file = osp.join(latest_checkpoint, file)
+                                dst_file = osp.join(output_path, file)
+                                if osp.isfile(src_file):
+                                    shutil.copy2(src_file, dst_file)
+                            
+                            solver.logger.info(f"Copied LoRA adapter weights to: {output_path}")
+                            lora_files_copied = True
+                        else:
+                            solver.logger.warning(f"Checkpoint directory not found: {latest_checkpoint}")
+                else:
+                    solver.logger.warning("Model is not directly recognized as a SwiftModel, trying fallback method...")
+            except ImportError:
+                solver.logger.warning("Swift library not found or not importable, trying fallback method...")
+            
+            # Fallback: Look for any LoRA weights in the checkpoints directory
+            if not lora_files_copied:
+                solver.logger.info("Using fallback method to find LoRA weights in checkpoints")
                 work_dir = solver.cfg.WORK_DIR
                 checkpoints_dir = osp.join(work_dir, 'checkpoints')
                 
-                # Find the latest checkpoint with LoRA weights
-                import glob
-                checkpoint_dirs = []
-                with FS.get_dir_to_local_dir(checkpoints_dir, wait_finish=True) as local_checkpoints_dir:
-                    checkpoint_dirs = sorted(glob.glob(osp.join(local_checkpoints_dir, f"{self.save_name_prefix}-*")))
-                
-                if not checkpoint_dirs:
-                    solver.logger.warning("No checkpoint directories found for LoRA weights")
-                    return
-                
-                # Use the latest checkpoint
-                latest_checkpoint = checkpoint_dirs[-1]
-                solver.logger.info(f"Using LoRA weights from: {latest_checkpoint}")
-                
-                # Copy all adapter files to output directory
-                if osp.exists(latest_checkpoint):
-                    import shutil
-                    for file in os.listdir(latest_checkpoint):
-                        src_file = osp.join(latest_checkpoint, file)
-                        dst_file = osp.join(output_path, file)
-                        if osp.isfile(src_file):
-                            shutil.copy2(src_file, dst_file)
+                # First try to directly find and copy ldm_step-* files
+                try:
+                    solver.logger.info(f"Looking for ldm_step checkpoints in {checkpoints_dir}")
+                    direct_checkpoint_files = []
                     
-                    solver.logger.info(f"Copied LoRA adapter weights to: {output_path}")
-                else:
-                    solver.logger.warning(f"Checkpoint directory not found: {latest_checkpoint}")
-            else:
-                solver.logger.warning("Model is not a SwiftModel, cannot extract LoRA adapters")
-        except ImportError:
-            solver.logger.error("Swift library not found, cannot save LoRA adapters")
+                    try:
+                        # In container path
+                        container_checkpoint_dir = "/app/scepter/cache/save_data/ace_0.6b_512/checkpoints"
+                        if os.path.exists(container_checkpoint_dir):
+                            import glob
+                            import shutil
+                            
+                            # Look for specific checkpoint files
+                            ldm_files = glob.glob(f"{container_checkpoint_dir}/ldm_step-*")
+                            solver.logger.info(f"Found {len(ldm_files)} ldm_step files in container path")
+                            
+                            for src_file in ldm_files:
+                                dst_file = os.path.join(output_path, os.path.basename(src_file))
+                                shutil.copy2(src_file, dst_file)
+                                solver.logger.info(f"Copied checkpoint file from container path: {src_file} -> {dst_file}")
+                                direct_checkpoint_files.append(dst_file)
+                    except Exception as e:
+                        solver.logger.warning(f"Error checking container checkpoint path: {e}")
+                    
+                    # Look in the save_data path
+                    save_data_path = "./cache/save_data"
+                    save_data_checkpoint_path = osp.join(save_data_path, "ace_0.6b_512", "checkpoints")
+                    
+                    try:
+                        with FS.get_dir_to_local_dir(save_data_checkpoint_path, wait_finish=True) as local_cp_dir:
+                            if os.path.exists(local_cp_dir):
+                                import glob
+                                import shutil
+                                
+                                # Look for specific checkpoint files
+                                ldm_files = glob.glob(f"{local_cp_dir}/ldm_step-*")
+                                solver.logger.info(f"Found {len(ldm_files)} ldm_step files in save_data path")
+                                
+                                for src_file in ldm_files:
+                                    dst_file = os.path.join(output_path, os.path.basename(src_file))
+                                    shutil.copy2(src_file, dst_file)
+                                    solver.logger.info(f"Copied checkpoint file from save_data: {src_file} -> {dst_file}")
+                                    direct_checkpoint_files.append(dst_file)
+                            else:
+                                solver.logger.warning(f"Could not find checkpoint directory at {local_cp_dir}")
+                    except Exception as e:
+                        solver.logger.warning(f"Error checking save_data checkpoint path: {e}")
+                    
+                    if direct_checkpoint_files:
+                        lora_files_copied = True
+                        solver.logger.info(f"Successfully copied {len(direct_checkpoint_files)} checkpoint files directly")
+                except Exception as e:
+                    solver.logger.error(f"Error in direct checkpoint file copy: {e}")
+                
+                # If direct copy didn't work, try the previous method
+                if not lora_files_copied:
+                    # Get all checkpoint directories
+                    checkpoint_subdirs = []
+                    try:
+                        with FS.get_dir_to_local_dir(checkpoints_dir, wait_finish=True) as local_checkpoints_dir:
+                            if os.path.exists(local_checkpoints_dir):
+                                checkpoint_subdirs = [d for d in os.listdir(local_checkpoints_dir) 
+                                                    if os.path.isdir(os.path.join(local_checkpoints_dir, d))]
+                                checkpoint_subdirs.sort()  # Sort alphabetically to find the latest
+                                
+                                if checkpoint_subdirs:
+                                    # Use the latest checkpoint directory 
+                                    latest_dir = os.path.join(local_checkpoints_dir, checkpoint_subdirs[-1])
+                                    solver.logger.info(f"Found latest checkpoint directory: {latest_dir}")
+                                    
+                                    # Copy all files that look like adapter weights
+                                    import shutil
+                                    import re
+                                    lora_files = []
+                                    for root, _, files in os.walk(latest_dir):
+                                        for file in files:
+                                            # Look for adapter or LoRA related files
+                                            if file.endswith('.bin') or file.endswith('.pt') or file.endswith('.pth'):
+                                                if 'adapter' in file.lower() or 'lora' in file.lower() or 'tuner' in file.lower():
+                                                    lora_files.append(os.path.join(root, file))
+                                    
+                                    # If no clear adapter files, just copy all model files
+                                    if not lora_files:
+                                        lora_files = [os.path.join(root, f) for root, _, files in os.walk(latest_dir) 
+                                                    for f in files if f.endswith(('.bin', '.pt', '.pth'))]
+                                    
+                                    # Copy the files
+                                    for src_file in lora_files:
+                                        dst_file = os.path.join(output_path, os.path.basename(src_file))
+                                        shutil.copy2(src_file, dst_file)
+                                        solver.logger.info(f"Copied potential LoRA weight file: {src_file} -> {dst_file}")
+                                    
+                                    if lora_files:
+                                        lora_files_copied = True
+                                        solver.logger.info(f"Copied {len(lora_files)} potential adapter weight files to: {output_path}")
+                            else:
+                                solver.logger.warning("No checkpoint subdirectories found")
+                    except Exception as e:
+                        solver.logger.error(f"Error in fallback checkpoint search: {e}")
+                
+                # If still no files, look for any other LoRA files in save_data
+                if not lora_files_copied:
+                    solver.logger.info("Looking for adapter weights in save_data directory")
+                    save_data_dir = './cache/save_data'
+                    try:
+                        with FS.get_dir_to_local_dir(save_data_dir, wait_finish=True) as local_save_dir:
+                            if os.path.exists(local_save_dir):
+                                import shutil
+                                import glob
+                                
+                                # Recursively find all potential adapter files
+                                adapter_files = []
+                                for ext in ['.bin', '.pt', '.pth']:
+                                    adapter_files.extend(glob.glob(f"{local_save_dir}/**/*adapter*{ext}", recursive=True))
+                                    adapter_files.extend(glob.glob(f"{local_save_dir}/**/*lora*{ext}", recursive=True))
+                                    adapter_files.extend(glob.glob(f"{local_save_dir}/**/*tuner*{ext}", recursive=True))
+                                
+                                for src_file in adapter_files:
+                                    dst_file = os.path.join(output_path, os.path.basename(src_file))
+                                    shutil.copy2(src_file, dst_file)
+                                    solver.logger.info(f"Copied adapter weight file from save_data: {src_file}")
+                                
+                                if adapter_files:
+                                    lora_files_copied = True
+                                    solver.logger.info(f"Copied {len(adapter_files)} adapter weight files to: {output_path}")
+                    except Exception as e:
+                        solver.logger.error(f"Error searching save_data directory: {e}")
+            
+            # Final check: did we actually find and copy any files?
+            if not lora_files_copied:
+                # Create a dummy adapter file to at least have something to upload
+                dummy_file_path = os.path.join(output_path, "README.md")
+                with open(dummy_file_path, "w") as f:
+                    f.write("# LoRA Adapter Weights\n\n")
+                    f.write("This directory should contain the LoRA adapter weights for fine-tuning.\n")
+                    f.write(f"Training run completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                solver.logger.warning("Created README.md placeholder as no adapter weights were found")
+                
         except Exception as e:
             solver.logger.error(f"Error saving LoRA adapters: {e}")
    
