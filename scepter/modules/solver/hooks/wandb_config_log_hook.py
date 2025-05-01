@@ -1,7 +1,7 @@
 import wandb
 import os
 from scepter.modules.solver.hooks.registry import HOOKS
-from scepter.modules.solver.hooks.base import Hook
+from scepter.modules.solver.hooks.hook import Hook
 
 @HOOKS.register_class()
 class WandbConfigLogHook(Hook):
