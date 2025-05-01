@@ -48,9 +48,10 @@ SOLVER:
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 64           # Doubled from 32 for more capacity
-      LORA_ALPHA: 128  # Increased from 64 for stronger effect
-      LORA_DROPOUT: 0.05  # Reduced from 0.1 to allow more learning
+      R: 64
+      LORA_ALPHA: 256  # Doubled from 128 for even stronger effect
+      LORA_DROPOUT: 0.02  # Further reduced to allow more aggressive learning
+      CROSS_ATTENTION_SCALE: 2.0  # New parameter to amplify attention to edge features
       BIAS: "none"
       TARGET_MODULES:
         - "attn.q"
@@ -147,7 +148,7 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 1e-4
+    LEARNING_RATE: 3e-4  # Increased base learning rate for OneCycleLR
     EPS: 1e-6
     WEIGHT_DECAY: 1e-7
     CLIP_GRAD_NORM: 1.0
@@ -155,10 +156,12 @@ SOLVER:
     GRAD_ACCUMULATION: 4
 
   LR_SCHEDULER:
-    NAME: CosineAnnealingLR
-    T_MAX: 5000
-    ETA_MIN: 1e-7
-    WARMUP_STEPS: 200
+    NAME: OneCycleLR  # Changed from CosineAnnealingLR
+    MAX_LR: 3e-4      # Peak learning rate
+    TOTAL_STEPS: 5000 # Match MAX_STEPS
+    PCT_START: 0.1    # Reach peak LR at 10% of training
+    DIV_FACTOR: 10.0  # Starting LR = max_lr/10
+    FINAL_DIV_FACTOR: 1000.0  # End with very small LR
 
   #
   TRAIN_DATA:
@@ -226,8 +229,9 @@ SOLVER:
       VIZ_START: 5,             # Start at step 5
       NUM_VAL_SAMPLES: 5,       # Number of validation samples to use
       FIXED_SAMPLE_INDICES: [0, 1, 2, 3, 4],  # Use first 5 samples consistently
-      NUM_INFERENCE_STEPS: 30,  # Increased from 20 for better quality
-      GUIDANCE_SCALE: 9.0,      # Increased from 7.5 for stronger conditioning
+      NUM_INFERENCE_STEPS: 40,  # Increased from 30 for cleaner edges
+      GUIDANCE_SCALE: 12.0,     # Increased from 9.0 for stronger conditioning
+      CONTRAST_BOOST: 1.5,      # New parameter to enhance edge visibility
       IMAGE_SIZE: 512,
       LOG_PROMPTS: true,        # Log the prompts used for visualization
       }
