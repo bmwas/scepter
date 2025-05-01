@@ -181,6 +181,9 @@ SOLVER:
     BATCH_SIZE: 1
     NUM_WORKERS: 1
     DROP_LAST: false
+    INPUT_FORMAT:
+      PROMPT_AS_NESTED_LIST: true
+      EMPTY_SRC_IMAGE_LIST: true
   #
   TRAIN_HOOKS:
     # ---------------- core training ----------------
