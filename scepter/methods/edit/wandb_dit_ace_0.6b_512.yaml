@@ -48,9 +48,9 @@ SOLVER:
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 96  # Reduced from 126 for less overfitting
-      LORA_ALPHA: 384  # Reduced from 512 for smoother updates
-      LORA_DROPOUT: 0.05  # Added dropout for regularization
+      R: 80  # Reduced from 96 for less aggressive adaptation
+      LORA_ALPHA: 256  # Reduced from 384
+      LORA_DROPOUT: 0.12  # Increased for more regularization
       CROSS_ATTENTION_SCALE: 2.5  # Reduced from 3.0
       BIAS: "all"
       TARGET_MODULES:
@@ -139,7 +139,7 @@ SOLVER:
     LOSS:
       NAME: ReconstructLoss
       LOSS_TYPE: l1  # Changed from l2 for sharper edges
-      EDGE_ENHANCEMENT: 1.5  # Reduced from 2.0 for stability
+      EDGE_ENHANCEMENT: 1.25  # Reduced from 1.5 for stability
       LOSS_CLIP: 4.0  # Reduced from 5.0 to further clip extreme gradients
       LOSS_WEIGHT: 1.0
   #
@@ -151,7 +151,7 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 0.0002  # Reduced from 0.0003 for smoother convergence
+    LEARNING_RATE: 0.0001  # Reduced from 0.0002 for smoother convergence
     EPS: 1e-6
     WEIGHT_DECAY: 1e-7
     CLIP_GRAD_NORM: 1.0
@@ -162,7 +162,7 @@ SOLVER:
     NAME: CosineAnnealingLR  # Fixed: using supported scheduler
     T_MAX: 7000  # Increased for slower decay
     ETA_MIN: 1e-7
-    WARMUP_STEPS: 200  # Increased for gentler warmup
+    WARMUP_STEPS: 450  # Increased from 200 for gentler warmup
 
   #
   TRAIN_DATA:
@@ -170,7 +170,7 @@ SOLVER:
     MODE: train
     CSV_PATH: ./cache/datasets/hed_test/larger_hed_pair/training.csv
     IMAGE_ROOT_DIR: ./cache/datasets/hed_test
-    BATCH_SIZE: 4
+    BATCH_SIZE: 8
     NUM_WORKERS: 1
     SAMPLER:
       NAME: LoopSampler
@@ -243,14 +243,15 @@ SOLVER:
       TRACK_ON_START: true,   # Added to ensure tracking at beginning of training
       WATCHED_DIRECTORIES: [
         "./cache/save_data",   # Main save directory
-        "./cache/datasets/hed_test",  # Updated CSV directory
+        "./cache/datasets/hed_test/",  # Updated CSV directory
+        "./scepter/methods/edit/",
       ],
       SPECIFIC_FILES: [
         "./scepter/methods/edit/wandb_dit_ace_0.6b_512.yaml"  # Using absolute path
       ],
       FILE_EXTENSIONS: [
         ".csv", ".yaml", ".yml", ".json", ".txt",  # Data and config files
-        ".pth", ".bin", ".pt",                    # Model weights
+        ".pth", ".bin", ".pt",".csv",                    # Model weights
         ".png", ".jpg", ".jpeg"                   # Generated images
       ],
       CREATE_RESULTS_ARTIFACT: true,

@@ -1479,13 +1479,23 @@ class WandbFileTrackerHook(Hook):
                 type=self.artifact_type,
                 description=f"{self.artifact_description} (final)"
             )
-            
+            import os
             for file_path in self.specific_files:
-                if os.path.exists(file_path):
-                    artifact.add_file(file_path)
-                    self.logger.info(f"Added specific file to wandb artifact: {file_path}")
-                else:
-                    self.logger.warning(f"Specific file not found: {file_path}")
-            
+                candidate_paths = [file_path]
+                # Try relative to solver.work_dir if available
+                if hasattr(solver, "work_dir"):
+                    candidate_paths.append(os.path.join(solver.work_dir, file_path))
+                # Try absolute path as fallback
+                candidate_paths.append(os.path.abspath(file_path))
+
+                found = False
+                for path in candidate_paths:
+                    if os.path.exists(path):
+                        artifact.add_file(path)
+                        self.logger.info(f"Added specific file to wandb artifact: {path}")
+                        found = True
+                        break
+                if not found:
+                    self.logger.warning(f"Specific file not found (tried: {candidate_paths})")
             wandb.run.log_artifact(artifact)
             self.logger.info(f"Logged {len(self.specific_files)} specific files to wandb")
