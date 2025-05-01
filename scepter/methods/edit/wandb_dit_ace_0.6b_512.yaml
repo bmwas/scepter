@@ -43,14 +43,14 @@ SOLVER:
     EVAL_EMA: False
     USE_SWA: True  # Enable Stochastic Weight Averaging for extreme stability
     SWA_START: 300  # Increased from 100 to delay averaging
-    SWA_FREQ: 20    # Reduced frequency for less smoothing early on
+    SWA_FREQ: 10    # Reduced frequency for less smoothing early on
     TEXT_IDENTIFIER: [ '{image}', '{image1}', '{image2}', '{image3}', '{image4}', '{image5}', '{image6}', '{image7}', '{image8}', '{image9}' ]
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
       R: 80  # Reduced from 96 for less aggressive adaptation
       LORA_ALPHA: 256  # Reduced from 384
-      LORA_DROPOUT: 0.12  # Increased for more regularization
+      LORA_DROPOUT: 0.15  # Increased for more regularization
       CROSS_ATTENTION_SCALE: 2.5  # Reduced from 3.0
       BIAS: "all"
       TARGET_MODULES:
@@ -139,7 +139,7 @@ SOLVER:
     LOSS:
       NAME: ReconstructLoss
       LOSS_TYPE: l1  # Changed from l2 for sharper edges
-      EDGE_ENHANCEMENT: 1.25  # Reduced from 1.5 for stability
+      EDGE_ENHANCEMENT: 1.1  # Reduced from 1.5 for stability
       LOSS_CLIP: 4.0  # Reduced from 5.0 to further clip extreme gradients
       LOSS_WEIGHT: 1.0
   #
@@ -170,7 +170,7 @@ SOLVER:
     MODE: train
     CSV_PATH: ./cache/datasets/hed_test/larger_hed_pair/training.csv
     IMAGE_ROOT_DIR: ./cache/datasets/hed_test
-    BATCH_SIZE: 8
+    BATCH_SIZE: 12
     NUM_WORKERS: 1
     SAMPLER:
       NAME: LoopSampler
@@ -190,6 +190,8 @@ SOLVER:
       EMPTY_SRC_IMAGE_LIST: true
   #
   TRAIN_HOOKS:
+    - {NAME: WandbConfigLogHook, PRIORITY: 1}
+    - {NAME: CopyConfigHook, PRIORITY: 10}
     # ---------------- core training ----------------
     - {NAME: BackwardHook,   PRIORITY: 0}
     - {NAME: LogHook,        LOG_INTERVAL: 50, PRIORITY: 100}
