@@ -164,8 +164,8 @@ SOLVER:
   TRAIN_DATA:
     NAME: CSVInRAMDataset
     MODE: train
-    CSV_PATH: ./cache/datasets/therapy_pair/images_child/training.csv
-    IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
+    CSV_PATH: ./cache/datasets/hed_pair/images_child/training.csv
+    IMAGE_ROOT_DIR: ./cache/datasets/hed_pair
     BATCH_SIZE: 4
     NUM_WORKERS: 1
     SAMPLER:
@@ -176,8 +176,8 @@ SOLVER:
   VAL_DATA:
     NAME: CSVInRAMDataset
     MODE: validation
-    CSV_PATH: ./cache/datasets/therapy_pair/images_child/validation.csv
-    IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
+    CSV_PATH: ./cache/datasets/hed_pair/images_child/validation.csv
+    IMAGE_ROOT_DIR: ./cache/datasets/hed_pair
     BATCH_SIZE: 1
     NUM_WORKERS: 1
     DROP_LAST: false
@@ -235,7 +235,7 @@ SOLVER:
       TRACK_ON_START: true,   # Added to ensure tracking at beginning of training
       WATCHED_DIRECTORIES: [
         "./cache/save_data",   # Main save directory
-        "./cache/datasets/therapy_pair/images_child",  # Updated CSV directory
+        "./cache/datasets/hed_pair/images_child",  # Updated CSV directory
       ],
       SPECIFIC_FILES: [
         "./scepter/methods/edit/wandb_dit_ace_0.6b_512.yaml"  # Using absolute path
