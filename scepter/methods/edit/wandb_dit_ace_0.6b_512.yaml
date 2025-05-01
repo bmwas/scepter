@@ -170,7 +170,7 @@ SOLVER:
     MODE: train
     CSV_PATH: ./cache/datasets/hed_test/larger_hed_pair/training.csv
     IMAGE_ROOT_DIR: ./cache/datasets/hed_test
-    BATCH_SIZE: 12
+    BATCH_SIZE: 16
     NUM_WORKERS: 1
     SAMPLER:
       NAME: LoopSampler
