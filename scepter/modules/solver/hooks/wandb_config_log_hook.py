@@ -8,6 +8,10 @@ class WandbConfigLogHook(Hook):
     """
     Logs the config file to wandb as soon as training begins.
     """
+    def __init__(self, cfg, logger=None):
+        super(WandbConfigLogHook, self).__init__(cfg, logger=logger)
+        self.priority = cfg.get('PRIORITY', 1)  # Set default priority to 1 (highest)
+    
     def before_solve(self, solver):
         config_path = './scepter/methods/edit/wandb_dit_ace_0.6b_512.yaml'
         if os.path.exists(config_path):

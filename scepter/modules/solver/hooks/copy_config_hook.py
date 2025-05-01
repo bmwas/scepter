@@ -9,6 +9,10 @@ class CopyConfigHook(Hook):
     Hook to copy the training config file to a known directory (e.g., ./cache/save_data/) before training starts.
     This ensures the config is always tracked by artifact/file tracking hooks.
     """
+    def __init__(self, cfg, logger=None):
+        super(CopyConfigHook, self).__init__(cfg, logger=logger)
+        self.priority = cfg.get('PRIORITY', 10)  # Set default priority to 10
+    
     def before_solve(self, solver):
         src = './scepter/methods/edit/wandb_dit_ace_0.6b_512.yaml'
         dst = './cache/save_data/wandb_dit_ace_0.6b_512.yaml'
