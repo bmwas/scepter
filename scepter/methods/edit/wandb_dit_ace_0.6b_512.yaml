@@ -148,7 +148,7 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 3e-4  # Increased base learning rate for OneCycleLR
+    LEARNING_RATE: 3e-4  # Increased for faster learning
     EPS: 1e-6
     WEIGHT_DECAY: 1e-7
     CLIP_GRAD_NORM: 1.0
@@ -156,12 +156,10 @@ SOLVER:
     GRAD_ACCUMULATION: 4
 
   LR_SCHEDULER:
-    NAME: OneCycleLR  # Changed from CosineAnnealingLR
-    MAX_LR: 3e-4      # Peak learning rate
-    TOTAL_STEPS: 5000 # Match MAX_STEPS
-    PCT_START: 0.1    # Reach peak LR at 10% of training
-    DIV_FACTOR: 10.0  # Starting LR = max_lr/10
-    FINAL_DIV_FACTOR: 1000.0  # End with very small LR
+    NAME: CosineAnnealingLR  # Fixed: using supported scheduler
+    T_MAX: 5000
+    ETA_MIN: 1e-7
+    WARMUP_STEPS: 100  # Reduced for faster warmup
 
   #
   TRAIN_DATA:
