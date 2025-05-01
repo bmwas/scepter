@@ -48,8 +48,8 @@ SOLVER:
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 64
-      LORA_ALPHA: 256  # Doubled from 128 for even stronger effect
+      R: 126
+      LORA_ALPHA: 512  # Doubled from 128 for even stronger effect
       LORA_DROPOUT: 0.02  # Further reduced to allow more aggressive learning
       CROSS_ATTENTION_SCALE: 2.0  # New parameter to amplify attention to edge features
       BIAS: "none"
