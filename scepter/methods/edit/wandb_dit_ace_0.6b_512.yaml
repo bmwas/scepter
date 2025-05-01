@@ -48,10 +48,10 @@ SOLVER:
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 80  # Reduced from 96 for less aggressive adaptation
-      LORA_ALPHA: 256  # Reduced from 384
-      LORA_DROPOUT: 0.15  # Increased for more regularization
-      CROSS_ATTENTION_SCALE: 2.5  # Reduced from 3.0
+      R: 80  # Maintaining R at 80
+      LORA_ALPHA: 512  # Increased from 256 for more pronounced adaptation
+      LORA_DROPOUT: 0.05  # Reduced from 0.15 for faster initial learning
+      CROSS_ATTENTION_SCALE: 3.0  # Increased from 2.5 for stronger effects
       BIAS: "all"
       TARGET_MODULES:
         - "attn.q"
@@ -139,7 +139,7 @@ SOLVER:
     LOSS:
       NAME: ReconstructLoss
       LOSS_TYPE: l1  # Changed from l2 for sharper edges
-      EDGE_ENHANCEMENT: 1.1  # Reduced from 1.5 for stability
+      EDGE_ENHANCEMENT: 1.8  # Increased from 1.1 for more pronounced edges
       LOSS_CLIP: 4.0  # Reduced from 5.0 to further clip extreme gradients
       LOSS_WEIGHT: 1.0
   #
@@ -151,7 +151,7 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 0.0001  # Reduced from 0.0002 for smoother convergence
+    LEARNING_RATE: 0.0003  # Increased from 0.0001 for faster learning
     EPS: 1e-6
     WEIGHT_DECAY: 1e-7
     CLIP_GRAD_NORM: 1.0
