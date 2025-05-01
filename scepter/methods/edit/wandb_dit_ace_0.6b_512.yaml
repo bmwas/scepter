@@ -11,7 +11,7 @@ SOLVER:
   USE_AMP: True
   DTYPE: float16
   CHANNELS_LAST: True
-  MAX_STEPS: 3000
+  MAX_STEPS: 5000
   MAX_EPOCHS: -1
   NUM_FOLDS: 10
   ACCU_STEP: 1
@@ -48,9 +48,9 @@ SOLVER:
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 32
-      LORA_ALPHA: 64  # Increased from 128 to amplify gradient signals
-      LORA_DROPOUT: 0.1  # Reduced from 0.1 to prevent too much regularization early
+      R: 64           # Doubled from 32 for more capacity
+      LORA_ALPHA: 128  # Increased from 64 for stronger effect
+      LORA_DROPOUT: 0.05  # Reduced from 0.1 to allow more learning
       BIAS: "none"
       TARGET_MODULES:
         - "attn.q"
@@ -147,18 +147,18 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 5e-5  # Increased from 5e-5 for faster initial convergence
+    LEARNING_RATE: 1e-4
     EPS: 1e-6
-    WEIGHT_DECAY: 1e-6
+    WEIGHT_DECAY: 1e-7
     CLIP_GRAD_NORM: 1.0
     BETAS: [0.9, 0.999]
     GRAD_ACCUMULATION: 4
 
   LR_SCHEDULER:
     NAME: CosineAnnealingLR
-    T_MAX: 3000
+    T_MAX: 5000
     ETA_MIN: 1e-7
-    WARMUP_STEPS: 200  # Reduced from 150 for earlier full learning rate
+    WARMUP_STEPS: 200
 
   #
   TRAIN_DATA:
