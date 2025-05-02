@@ -11,10 +11,10 @@ SOLVER:
   USE_AMP: True
   DTYPE: float16
   CHANNELS_LAST: True
-  MAX_STEPS: 5000
+  MAX_STEPS: 100
   MAX_EPOCHS: -1
-  NUM_FOLDS: 1
-  EVAL_INTERVAL: 5
+  NUM_FOLDS: 10
+  EVAL_INTERVAL: 2
   RESCALE_LR: False
   #
   WORK_DIR: ./cache/save_data/ace_0.6b_512
@@ -162,7 +162,7 @@ SOLVER:
     T_0: 1000
     T_MULT: 1
     ETA_MIN: 5e-6
-    WARMUP_STEPS: 200
+    WARMUP_STEPS: 20
 
   #
   TRAIN_DATA:
@@ -231,8 +231,8 @@ SOLVER:
       NUM_VAL_SAMPLES: 5,       # Number of validation samples to use
       FIXED_SAMPLE_INDICES: [0, 1, 2, 3, 4],  # Use first 5 samples consistently
       NUM_INFERENCE_STEPS: 30,  # Increased from 30 for cleaner edges
-      GUIDANCE_SCALE: 10.0,     # Reduced from 12.0 for less overfitting to prompt
-      CONTRAST_BOOST: 1.5,      # New parameter to enhance edge visibility
+      GUIDANCE_SCALE: 4.5,     # Reduced from 12.0 for less overfitting to prompt
+      CONTRAST_BOOST: 5.5,      # New parameter to enhance edge visibility
       IMAGE_SIZE: 512,
       LOG_PROMPTS: true,        # Log the prompts used for visualization
       }
