@@ -139,6 +139,7 @@ SOLVER:
     LOSS:
       NAME: ReconstructLoss
       LOSS_TYPE: l2  # Original was l2
+      EDGE_ENHANCEMENT: 1.5  # Added back edge enhancement for better edge detection
   #
   SAMPLE_ARGS:
     SAMPLER: ddim
@@ -148,7 +149,7 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 1e-7
+    LEARNING_RATE: 5e-4  # Increased from 1e-7 for meaningful learning
     EPS: 1e-10
     WEIGHT_DECAY: 5e-4
   #
