@@ -11,9 +11,9 @@ SOLVER:
   USE_AMP: True
   DTYPE: float16
   CHANNELS_LAST: True
-  MAX_STEPS: 100
+  MAX_STEPS: 600
   MAX_EPOCHS: -1
-  NUM_FOLDS: 10
+  NUM_FOLDS: 5
   EVAL_INTERVAL: 2
   RESCALE_LR: False
   #
@@ -206,7 +206,7 @@ SOLVER:
     # ---------------- Complete model with all components ----------------
     - {NAME: FinalModelHFHook, PRIORITY: 1200,
       OUTPUT_DIR: "FINAL_MODEL_HF",
-      SAVE_ON_STEPS: [200],  # Save at these specific steps
+      SAVE_ON_STEPS: [1000],  # Save at these specific steps
       MODEL_COMPONENTS: ["dit", "text_encoder", "tokenizer", "vae"],
       PUSH_TO_HUB: true,
       HUB_MODEL_ID: "Benson/ace-model-0.6b-512-complete",
@@ -216,7 +216,7 @@ SOLVER:
     # ---------------- LoRA model saving hook using standard hook ----------------
     - {NAME: FinalModelHFHook, PRIORITY: 1100,
       OUTPUT_DIR: "FINAL_LORA_HF",
-      SAVE_ON_STEPS: [200],
+      SAVE_ON_STEPS: [1000],
       SAVE_LORA_ONLY: true,
       MODEL_COMPONENTS: ["lora_adapters"],  # Only save LoRA adapter weights
       PUSH_TO_HUB: true,
