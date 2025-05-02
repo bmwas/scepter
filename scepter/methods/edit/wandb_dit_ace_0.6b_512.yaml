@@ -50,7 +50,7 @@ SOLVER:
       R: 4
       LORA_ALPHA: 12
       LORA_DROPOUT: 0.1
-      CROSS_ATTENTION_SCALE: 8.5
+      CROSS_ATTENTION_SCALE: 12
       BIAS: "all"
       TARGET_MODULES:
         - "attn.q"
@@ -160,7 +160,7 @@ SOLVER:
     NAME: StepLR
     STEP_SIZE: 50
     GAMMA: 0.95
-    WARMUP_STEPS: 5
+    WARMUP_STEPS: 25
 
   #
   TRAIN_DATA:
@@ -168,7 +168,7 @@ SOLVER:
     MODE: train
     CSV_PATH: ./cache/datasets/therapy_pair/images_child/training.csv
     IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
-    BATCH_SIZE: 4
+    BATCH_SIZE: 20
     NUM_WORKERS: 4
     SAMPLER:
       NAME: LoopSampler
