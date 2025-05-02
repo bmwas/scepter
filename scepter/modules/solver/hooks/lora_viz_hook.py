@@ -65,6 +65,19 @@ class LoRAWandbVizHook(Hook):
             return
             
         if (self.step == self.viz_start) or (self.step % self.viz_interval == 0):
+            # Add extremely visible print statements
+            print("\n")
+            print("*" * 100)
+            print("*" * 100)
+            print(f"**  {'LoRA INFERENCE VISUALIZATION':^90}  **")
+            print(f"**  {'':^90}  **")
+            print(f"**  {'CURRENT ITERATION:':^45}{self.step:^45}  **")
+            print(f"**  {'':^90}  **")
+            print(f"**  {'GENERATING IMAGES WITH CURRENT LORA WEIGHTS':^90}  **")
+            print("*" * 100)
+            print("*" * 100)
+            print("\n")
+            
             self.logger.info("=" * 80)
             self.logger.info(f"📊 LoRAWandbVizHook: VISUALIZATION at step {self.step}")
             self.logger.info("=" * 80)
