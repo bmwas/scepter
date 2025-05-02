@@ -37,8 +37,8 @@ SOLVER:
     SIZE_FACTOR: 8
     DECODER_BIAS: 0.5
     DEFAULT_N_PROMPT:
-    USE_EMA: True
-    EMA_DECAY: 0.999
+    USE_EMA: False
+    EMA_DECAY: 0.99
     EVAL_EMA: False
     USE_SWA: False
     SWA_START: 1000
@@ -47,10 +47,10 @@ SOLVER:
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 32
-      LORA_ALPHA: 64
+      R: 64
+      LORA_ALPHA: 128
       LORA_DROPOUT: 0.1
-      CROSS_ATTENTION_SCALE: 2.5
+      CROSS_ATTENTION_SCALE: 8.5
       BIAS: "all"
       TARGET_MODULES:
         - "attn.q"
@@ -159,10 +159,10 @@ SOLVER:
 
   LR_SCHEDULER:
     NAME: CosineAnnealingWarmRestarts
-    T_0: 1000
+    T_0: 2000
     T_MULT: 1
-    ETA_MIN: 5e-6
-    WARMUP_STEPS: 20
+    ETA_MIN: 1e-5
+    WARMUP_STEPS: 100
 
   #
   TRAIN_DATA:
