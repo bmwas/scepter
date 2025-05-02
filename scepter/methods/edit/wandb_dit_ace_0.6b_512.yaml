@@ -160,6 +160,7 @@ SOLVER:
   LR_SCHEDULER:
     NAME: CosineAnnealingWarmRestarts
     T_0: 1000
+    T_MULT: 1
     ETA_MIN: 5e-6
     WARMUP_STEPS: 200
 
