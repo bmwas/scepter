@@ -138,20 +138,20 @@ SOLVER:
       USE_GRAD: False
     LOSS:
       NAME: ReconstructLoss
-      LOSS_TYPE: l1  # Keeping l1 which is good for edges
-      EDGE_ENHANCEMENT: 2.0  # Original high value
-      LOSS_CLIP: 4.0  # Reduced from 5.0 to further clip extreme gradients
+      LOSS_TYPE: l2  # Original was l2
+      EDGE_ENHANCEMENT: 2.0
+      LOSS_CLIP: 10.0  # Original higher value
       LOSS_WEIGHT: 1.0
   #
   SAMPLE_ARGS:
     SAMPLER: ddim
     SAMPLE_STEPS: 30  # Increased from 20
-    GUIDE_SCALE: 7.5  # Original value
+    GUIDE_SCALE: 12.0  # Higher guidance scale for stronger conditioning
     GUIDE_RESCALE: 0.7  # Increased from 0.5
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 3e-4  # Original learning rate
+    LEARNING_RATE: 0.0003
     EPS: 1e-6
     WEIGHT_DECAY: 1e-7
     CLIP_GRAD_NORM: 1.0
@@ -233,7 +233,7 @@ SOLVER:
       NUM_VAL_SAMPLES: 5,       # Number of validation samples to use
       FIXED_SAMPLE_INDICES: [0, 1, 2, 3, 4],  # Use first 5 samples consistently
       NUM_INFERENCE_STEPS: 30,  # Increased from 30 for cleaner edges
-      GUIDANCE_SCALE: 10.0,     # Reduced from 12.0 for less overfitting to prompt
+      GUIDANCE_SCALE: 12.0,     # Higher for stronger conditioning
       CONTRAST_BOOST: 1.5,      # New parameter to enhance edge visibility
       IMAGE_SIZE: 512,
       LOG_PROMPTS: true,        # Log the prompts used for visualization
