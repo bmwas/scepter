@@ -47,8 +47,8 @@ SOLVER:
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 64
-      LORA_ALPHA: 128
+      R: 128
+      LORA_ALPHA: 256
       LORA_DROPOUT: 0.1
       CROSS_ATTENTION_SCALE: 8.5
       BIAS: "all"
@@ -137,10 +137,9 @@ SOLVER:
       USE_GRAD: False
     LOSS:
       NAME: ReconstructLoss
-      LOSS_TYPE: l1
-      EDGE_ENHANCEMENT: 1.5
-      LOSS_CLIP: 4.0
-      LOSS_WEIGHT: 1.0
+      LOSS_TYPE: l2
+      EDGE_ENHANCEMENT: 4.5
+
   #
   SAMPLE_ARGS:
     SAMPLER: ddim
