@@ -13,8 +13,7 @@ SOLVER:
   CHANNELS_LAST: True
   MAX_STEPS: 5000
   MAX_EPOCHS: -1
-  NUM_FOLDS: 10
-  ACCU_STEP: 1
+  NUM_FOLDS: 1
   EVAL_INTERVAL: 5
   RESCALE_LR: False
   #
@@ -38,18 +37,18 @@ SOLVER:
     SIZE_FACTOR: 8
     DECODER_BIAS: 0.5
     DEFAULT_N_PROMPT:
-    USE_EMA: True
+    USE_EMA: False
     EMA_DECAY: 0.99
-    EVAL_EMA: True
+    EVAL_EMA: False
     USE_SWA: False
-    SWA_START: 300
+    SWA_START: 1000
     SWA_FREQ: 20
     TEXT_IDENTIFIER: [ '{image}', '{image1}', '{image2}', '{image3}', '{image4}', '{image5}', '{image6}', '{image7}', '{image8}', '{image9}' ]
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 96
-      LORA_ALPHA: 384
+      R: 32
+      LORA_ALPHA: 64
       LORA_DROPOUT: 0.1
       CROSS_ATTENTION_SCALE: 2.5
       BIAS: "all"
@@ -68,7 +67,7 @@ SOLVER:
     DIFFUSION:
       NAME: BaseDiffusion
       PREDICTION_TYPE: eps
-      MIN_SNR_GAMMA: 3.0
+      MIN_SNR_GAMMA: 6.0
       NOISE_SCHEDULER:
         NAME: LinearScheduler
         NUM_TIMESTEPS: 1000
@@ -151,7 +150,7 @@ SOLVER:
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 0.00015
+    LEARNING_RATE: 3e-4
     EPS: 1e-6
     WEIGHT_DECAY: 1e-7
     CLIP_GRAD_NORM: 1.0
@@ -171,7 +170,7 @@ SOLVER:
     CSV_PATH: ./cache/datasets/hed_test/larger_hed_pair/training.csv
     IMAGE_ROOT_DIR: ./cache/datasets/hed_test
     BATCH_SIZE: 4
-    NUM_WORKERS: 1
+    NUM_WORKERS: 4
     SAMPLER:
       NAME: LoopSampler
       SHUFFLE: true
@@ -183,11 +182,11 @@ SOLVER:
     CSV_PATH: ./cache/datasets/hed_test/larger_hed_pair/validation.csv
     IMAGE_ROOT_DIR: ./cache/datasets/hed_test
     BATCH_SIZE: 1
-    NUM_WORKERS: 1
+    NUM_WORKERS: 4
     DROP_LAST: false
     INPUT_FORMAT:
       PROMPT_AS_NESTED_LIST: true
-      EMPTY_SRC_IMAGE_LIST: true
+      EMPTY_SRC_IMAGE_LIST: false
   #
   TRAIN_HOOKS:
     # ---------------- core training ----------------
