@@ -167,8 +167,8 @@ SOLVER:
   TRAIN_DATA:
     NAME: CSVInRAMDataset
     MODE: train
-    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/training.csv
-    IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
+    CSV_PATH: ./cache/datasets/hed_test/larger_hed_pair/training.csv
+    IMAGE_ROOT_DIR: ./cache/datasets/hed_test
     BATCH_SIZE: 4
     NUM_WORKERS: 4
     SAMPLER:
@@ -179,8 +179,8 @@ SOLVER:
   VAL_DATA:
     NAME: CSVInRAMDataset
     MODE: validation
-    CSV_PATH: ./cache/datasets/therapy_pair/images_therapist/validation.csv
-    IMAGE_ROOT_DIR: ./cache/datasets/therapy_pair
+    CSV_PATH: ./cache/datasets/hed_test/larger_hed_pair/validation.csv
+    IMAGE_ROOT_DIR: ./cache/datasets/hed_test
     BATCH_SIZE: 1
     NUM_WORKERS: 4
     DROP_LAST: false
@@ -242,7 +242,7 @@ SOLVER:
       TRACK_ON_START: true,   # Added to ensure tracking at beginning of training
       WATCHED_DIRECTORIES: [
         "./cache/save_data",   # Main save directory
-        "./cache/datasets/therapy_pair/",  # Updated CSV directory
+        "./cache/datasets/hed_test/",  # Updated CSV directory
         "./scepter/methods/edit/",
       ],
       SPECIFIC_FILES: [
