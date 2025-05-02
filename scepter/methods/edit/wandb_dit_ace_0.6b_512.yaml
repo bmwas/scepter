@@ -37,8 +37,8 @@ SOLVER:
     SIZE_FACTOR: 8
     DECODER_BIAS: 0.5
     DEFAULT_N_PROMPT:
-    USE_EMA: False
-    EMA_DECAY: 0.99
+    USE_EMA: True
+    EMA_DECAY: 0.999
     EVAL_EMA: False
     USE_SWA: False
     SWA_START: 1000
@@ -155,7 +155,7 @@ SOLVER:
     WEIGHT_DECAY: 1e-7
     CLIP_GRAD_NORM: 0.5
     BETAS: [0.9, 0.999]
-    GRAD_ACCUMULATION: 4
+    GRAD_ACCUMULATION: 8
 
   LR_SCHEDULER:
     NAME: CosineAnnealingWarmRestarts
