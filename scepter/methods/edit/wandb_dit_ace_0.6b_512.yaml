@@ -47,8 +47,8 @@ SOLVER:
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 128
-      LORA_ALPHA: 256
+      R: 4
+      LORA_ALPHA: 12
       LORA_DROPOUT: 0.1
       CROSS_ATTENTION_SCALE: 8.5
       BIAS: "all"
