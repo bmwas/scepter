@@ -48,7 +48,7 @@ SOLVER:
     USE_TEXT_POS_EMBEDDINGS: True
     TUNER:
       NAME: SwiftLoRA
-      R: 126  # Reverting to original high value
+      R: 256  # Reverting to original high value
       LORA_ALPHA: 512  # Original high alpha for strong adaptation
       LORA_DROPOUT: 0.00  # Original no dropout
       CROSS_ATTENTION_SCALE: 3.0  # Original high value
@@ -139,38 +139,25 @@ SOLVER:
     LOSS:
       NAME: ReconstructLoss
       LOSS_TYPE: l2  # Original was l2
-      EDGE_ENHANCEMENT: 2.0
-      LOSS_CLIP: 10.0  # Original higher value
-      LOSS_WEIGHT: 1.0
   #
   SAMPLE_ARGS:
     SAMPLER: ddim
-    SAMPLE_STEPS: 30  # Increased from 20
-    GUIDE_SCALE: 12.0  # Higher guidance scale for stronger conditioning
-    GUIDE_RESCALE: 0.7  # Increased from 0.5
+    SAMPLE_STEPS: 20  # Increased from 20
+    GUIDE_SCALE: 4.5  # Higher guidance scale for stronger conditioning
+    GUIDE_RESCALE: 0.5  # Increased from 0.5
   #
   OPTIMIZER:
     NAME: AdamW
-    LEARNING_RATE: 0.0003
-    EPS: 1e-6
-    WEIGHT_DECAY: 1e-7
-    CLIP_GRAD_NORM: 1.0
-    BETAS: [0.9, 0.999]
-    GRAD_ACCUMULATION: 4
-
-  LR_SCHEDULER:
-    NAME: CosineAnnealingLR  # Fixed: using supported scheduler
-    T_MAX: 7000  # Increased for slower decay
-    ETA_MIN: 1e-7
-    WARMUP_STEPS: 100  # Original shorter warmup
-
+    LEARNING_RATE: 1e-7
+    EPS: 1e-10
+    WEIGHT_DECAY: 5e-4
   #
   TRAIN_DATA:
     NAME: CSVInRAMDataset
     MODE: train
     CSV_PATH: ./cache/datasets/hed_test/larger_hed_pair/training.csv
     IMAGE_ROOT_DIR: ./cache/datasets/hed_test
-    BATCH_SIZE: 16
+    BATCH_SIZE: 20
     NUM_WORKERS: 1
     SAMPLER:
       NAME: LoopSampler
