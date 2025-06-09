@@ -308,14 +308,16 @@ def edit_image(req: EditRequest):
             logger.error(f"[{request_id}] Failed to decode source image: {e}")
             raise HTTPException(status_code=400, detail="Invalid source image data")
         
-        # Decode mask if present
-        mask_img = None
+        # Decode mask if present, otherwise auto-create a white mask (edit everywhere)
         if req.mask_base64:
             try:
                 mask_img = Image.open(io.BytesIO(base64.b64decode(req.mask_base64))).convert("L")
             except Exception as e:
                 logger.error(f"[{request_id}] Failed to decode mask image: {e}")
                 raise HTTPException(status_code=400, detail="Invalid mask image data")
+        else:
+            # Auto-create a white mask (all 255) to allow editing everywhere
+            mask_img = Image.new("L", src_img.size, 255)
         
         # Ensure required models are loaded
         if hasattr(inference, 'first_stage_model') and inference.first_stage_model is not None:
