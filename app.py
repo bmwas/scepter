@@ -10,7 +10,7 @@ from PIL import Image
 import uvicorn
 import os
 import logging
-from typing import List
+from typing import List, Optional
 
 # Set up logging
 logger = logging.getLogger("scepter-api")
@@ -176,6 +176,20 @@ class PromptRequest(BaseModel):
     guide_rescale: float = 0.5
     seed: int = -1
 
+# Request model for image editing
+class EditRequest(BaseModel):
+    image_base64: str  # Source image in base64 PNG/JPEG
+    mask_base64: Optional[str] = None  # Optional mask (white areas will be edited)
+    prompt: str  # Edit instruction
+    task: str = ''  # e.g., 'inpainting' (left blank will default inside inference)
+    negative_prompt: str = ''
+    output_height: int = 512
+    output_width: int = 512
+    sample_steps: int = 20
+    guide_scale: float = 4.5
+    guide_rescale: float = 0.5
+    seed: int = -1
+
 # Function to prepare prompt inputs based on ACE model's expected formats
 def format_ace_inputs(prompt, negative_prompt=None):
     """Format inputs for the ACE model based on its requirements.
@@ -275,6 +289,77 @@ def generate_image(req: PromptRequest):
         # Handle any errors gracefully
         total_time = time.time() - start_time
         logger.error(f"[{request_id}] Error during image generation: {e}")
+        logger.error(traceback.format_exc())
+        return {"error": str(e), "processing_time": total_time}
+
+# ---------------------------- Image Editing Endpoint ---------------------------- #
+
+@app.post("/editing")
+def edit_image(req: EditRequest):
+    request_id = f"edit_{int(time.time() * 1000)}"
+    logger.info(f"[{request_id}] New image editing request with prompt: '{req.prompt[:50]}...'")
+    
+    start_time = time.time()
+    try:
+        # Decode source image
+        try:
+            src_img = Image.open(io.BytesIO(base64.b64decode(req.image_base64))).convert("RGB")
+        except Exception as e:
+            logger.error(f"[{request_id}] Failed to decode source image: {e}")
+            raise HTTPException(status_code=400, detail="Invalid source image data")
+        
+        # Decode mask if present
+        mask_img = None
+        if req.mask_base64:
+            try:
+                mask_img = Image.open(io.BytesIO(base64.b64decode(req.mask_base64))).convert("L")
+            except Exception as e:
+                logger.error(f"[{request_id}] Failed to decode mask image: {e}")
+                raise HTTPException(status_code=400, detail="Invalid mask image data")
+        
+        # Ensure required models are loaded
+        if hasattr(inference, 'first_stage_model') and inference.first_stage_model is not None:
+            inference.dynamic_load(inference.first_stage_model, 'first_stage_model')
+        if hasattr(inference, 'cond_stage_model') and inference.cond_stage_model is not None:
+            inference.dynamic_load(inference.cond_stage_model, 'cond_stage_model')
+        if hasattr(inference, 'diffusion_model') and inference.diffusion_model is not None:
+            inference.dynamic_load(inference.diffusion_model, 'diffusion_model')
+        
+        # Prepare prompts
+        formatted_prompt, formatted_neg_prompt = format_ace_inputs(req.prompt, req.negative_prompt)
+        
+        inference_start = time.time()
+        images = inference(
+            image=[src_img],
+            mask=[mask_img] if mask_img else [None],
+            prompt=formatted_prompt,
+            task=[req.task] if req.task else [''],
+            negative_prompt=formatted_neg_prompt,
+            output_height=req.output_height,
+            output_width=req.output_width,
+            sample_steps=req.sample_steps,
+            guide_scale=req.guide_scale,
+            guide_rescale=req.guide_rescale,
+            seed=req.seed
+        )
+        inference_time = time.time() - inference_start
+        logger.info(f"[{request_id}] Inference completed in {inference_time:.2f} seconds")
+        
+        if not images or not isinstance(images[0], Image.Image):
+            logger.error(f"[{request_id}] Inference returned no valid image")
+            raise RuntimeError("Inference failed to produce an image")
+        
+        # Convert to base64
+        buffer = io.BytesIO()
+        images[0].save(buffer, format="PNG")
+        img_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        total_time = time.time() - start_time
+        logger.info(f"[{request_id}] Editing request completed in {total_time:.2f} seconds")
+        return {"image_base64": img_b64, "processing_time": total_time}
+    
+    except Exception as e:
+        total_time = time.time() - start_time
+        logger.error(f"[{request_id}] Error during image editing: {e}")
         logger.error(traceback.format_exc())
         return {"error": str(e), "processing_time": total_time}
 

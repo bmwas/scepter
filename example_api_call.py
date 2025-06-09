@@ -7,22 +7,50 @@ def main():
     # FastAPI server endpoint - use localhost for local testing or IP for cross-container
     # If running client outside the Docker container where server is running,
     # you may need to replace localhost with the container's IP or hostname
-    API_URL = "http://localhost:8000/generate"
+    MODE = "generate"  # or "editing"
+    BASE_URL = "http://64.247.196.8:8000"  # Update host if different
+    API_URL = f"{BASE_URL}/{MODE}"
     
     # Uncomment and modify this line if running from another container or remote machine
     # API_URL = "http://<container_ip_or_hostname>:8000/generate"
     
-    # Parameters for image generation - matching the PromptRequest model in app.py
-    data = {
-        "prompt": "a futuristic city at sunset",
-        "negative_prompt": "",
-        "output_height": 512,
-        "output_width": 512,
-        "sample_steps": 20,
-        "guide_scale": 4.5,
-        "guide_rescale": 0.5,
-        "seed": 2024  # Fixed seed for reproducibility
-    }
+    # -------------- Choose between generation or editing -------------- #
+    if MODE == "generate":
+        data = {
+            "prompt": "a child with a red hat and blue shirt",
+            "negative_prompt": "",
+            "output_height": 512,
+            "output_width": 512,
+            "sample_steps": 20,
+            "guide_scale": 4.5,
+            "guide_rescale": 0.5,
+            "seed": 2024
+        }
+    else:  # MODE == "editing"
+        # Load a local image to edit
+        src_path = "source.png"  # Provide any local image path
+        with open(src_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+        
+        # Optional mask path (white = edit area, black = keep). Comment out if not needed
+        mask_b64 = None
+        # mask_path = "mask.png"
+        # with open(mask_path, "rb") as f:
+        #     mask_b64 = base64.b64encode(f.read()).decode("utf-8")
+        
+        data = {
+            "image_base64": img_b64,
+            "mask_base64": mask_b64,
+            "prompt": "make the hat green",
+            "task": "inpainting",
+            "negative_prompt": "",
+            "output_height": 512,
+            "output_width": 512,
+            "sample_steps": 20,
+            "guide_scale": 4.5,
+            "guide_rescale": 0.5,
+            "seed": 42
+        }
     
     print(f"Sending request to {API_URL} with prompt: '{data['prompt']}'...")
     
