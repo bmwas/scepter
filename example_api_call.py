@@ -1,6 +1,9 @@
 import requests
 import base64
 import io
+import sys
+from pathlib import Path
+from typing import Optional
 from PIL import Image
 
 def main():
@@ -27,21 +30,39 @@ def main():
             "seed": 2024
         }
     else:  # MODE == "editing"
-        # Load a local image to edit
-        src_path = "source.png"  # Provide any local image path
-        with open(src_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode("utf-8")
-        
-        # Optional mask path (white = edit area, black = keep). Comment out if not needed
+        # ---------------- Image / Mask helpers ---------------- #
+        SUPPORTED_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+
+        def encode_image_to_base64(path: str, pil_mode: Optional[str] = "RGB") -> str:
+            """Load any supported image, convert to given mode, encode as PNG base64."""
+            p = Path(path)
+            if not p.exists():
+                raise FileNotFoundError(f"Image file '{path}' does not exist")
+            if p.suffix.lower() not in SUPPORTED_EXTS:
+                raise ValueError(f"Unsupported file type '{p.suffix}'. Supported: {', '.join(SUPPORTED_EXTS)}")
+
+            with Image.open(p) as im:
+                if pil_mode:
+                    im = im.convert(pil_mode)
+                buf = io.BytesIO()
+                im.save(buf, format="PNG")  # unify format for API
+                return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+        # Accept CLI args: python example_api_call.py source_img [mask_img] ["edit prompt"]
+        src_path = sys.argv[1] if len(sys.argv) > 1 else "source.png"
+        mask_path = sys.argv[2] if len(sys.argv) > 2 else None
+        edit_prompt = sys.argv[3] if len(sys.argv) > 3 else "make the hat green"
+
+        img_b64 = encode_image_to_base64(src_path, "RGB")
+
         mask_b64 = None
-        # mask_path = "mask.png"
-        # with open(mask_path, "rb") as f:
-        #     mask_b64 = base64.b64encode(f.read()).decode("utf-8")
-        
+        if mask_path:
+            mask_b64 = encode_image_to_base64(mask_path, "L")
+
         data = {
             "image_base64": img_b64,
             "mask_base64": mask_b64,
-            "prompt": "make the hat green",
+            "prompt": edit_prompt,
             "task": "inpainting",
             "negative_prompt": "",
             "output_height": 512,
