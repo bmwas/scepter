@@ -173,6 +173,55 @@ pip install scepter
 | Image Generation and Editing | [🌟ACE++](https://ali-vilab.github.io/ACE_plus_page/) | [![Arxiv   link](https://img.shields.io/static/v1?label=arXiv&message=ACEPlus&color=red&logo=arxiv)](https://arxiv.org/abs/2501.02487)   [![Page link](https://img.shields.io/badge/Page-ACE++-Gree)](https://ali-vilab.github.io/ACE_plus_page/) [![Demo link](https://img.shields.io/badge/Demo-ACE++-purple)](https://huggingface.co/spaces/scepter-studio/ACE-Plus) <br> [![ModelScope link](https://img.shields.io/badge/ModelScope-Model-blue)](https://www.modelscope.cn/models/iic/ACE_Plus/summary)  [![HuggingFace link](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-yellow)](https://huggingface.co/ali-vilab/ACE_Plus/tree/main) |
 
 
+## 🌐 FastAPI Application
+
+### Running the API Server
+
+SCEPTER includes a FastAPI application that provides REST API endpoints for image generation and editing tasks. To run the server:
+
+```bash
+python app.py
+```
+
+By default, the server runs on port 8000 and includes the following endpoints:
+- `/generate`: Text-to-image generation
+- `/editing`: Image editing with text instructions
+
+### Image Editing API
+
+The image editing endpoint allows you to edit an existing image using natural language instructions. It supports both whole-image editing and masked region editing.
+
+#### Example Usage
+
+Use the included example client script to interact with the API:
+
+```bash
+# Basic image editing (whole image)
+python example_api_call.py --mode editing --source_img path/to/image.png --edit_prompt "make the background blue" --task "editing"
+
+# Edit with a mask (only edit areas where mask is white)
+python example_api_call.py --mode editing --source_img path/to/image.png --mask_img path/to/mask.png --edit_prompt "add flowers in the masked area" --task "editing"
+
+# Specify output filename
+python example_api_call.py --mode editing --source_img path/to/image.png --edit_prompt "make it night time" --task "editing" --output edited_image.png
+```
+
+#### Important Parameters
+
+- `--source_img`: Path to the source image to edit (required)
+- `--mask_img`: Path to an optional mask image (white areas will be edited, black areas preserved)
+- `--edit_prompt`: Text instruction for editing the image (required)
+- `--task`: Task type for image editing (set to "editing" for best results)
+- `--output`: Output filename (default: generated_image.png)
+
+### Image Generation API
+
+For text-to-image generation:
+
+```bash
+python example_api_call.py --mode generate --prompt "a beautiful landscape with mountains and a lake" --output landscape.png
+```
+
 ## 🖥️ SCEPTER Studio
 
 ### Launch

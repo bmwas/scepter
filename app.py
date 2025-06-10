@@ -319,6 +319,13 @@ def edit_image(req: EditRequest):
             # Auto-create a white mask (all 255) to allow editing everywhere
             mask_img = Image.new("L", src_img.size, 255)
         
+        # Add detailed diagnostic logging
+        logger.info(f"[{request_id}] Image dimensions: {src_img.size}")
+        logger.info(f"[{request_id}] Mask provided: {req.mask_base64 is not None}")
+        if mask_img:
+            logger.info(f"[{request_id}] Mask dimensions: {mask_img.size}, Histogram: {mask_img.histogram()[:10]}...")
+        logger.info(f"[{request_id}] Task: '{req.task}'")
+        
         # Ensure required models are loaded
         if hasattr(inference, 'first_stage_model') and inference.first_stage_model is not None:
             inference.dynamic_load(inference.first_stage_model, 'first_stage_model')
@@ -329,6 +336,7 @@ def edit_image(req: EditRequest):
         
         # Prepare prompts
         formatted_prompt, formatted_neg_prompt = format_ace_inputs(req.prompt, req.negative_prompt)
+        logger.info(f"[{request_id}] Formatted prompt: {formatted_prompt}")
         
         inference_start = time.time()
         images = inference(
@@ -356,6 +364,7 @@ def edit_image(req: EditRequest):
         images[0].save(buffer, format="PNG")
         img_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
         total_time = time.time() - start_time
+        logger.info(f"[{request_id}] Result image dimensions: {images[0].size}")
         logger.info(f"[{request_id}] Editing request completed in {total_time:.2f} seconds")
         return {"image_base64": img_b64, "processing_time": total_time}
     

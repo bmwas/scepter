@@ -54,11 +54,12 @@ def main():
     parser.add_argument('--source_img', type=str, help='Path to image to edit (editing mode)')
     parser.add_argument('--mask_img', type=str, default=None, help='Path to mask image (editing mode, optional)')
     parser.add_argument('--edit_prompt', type=str, default=None, help='Edit instruction (editing mode)')
+    parser.add_argument('--task', type=str, default="", help='Task type: empty string (default), "inpainting", etc.')
     parser.add_argument('--api_url', type=str, default=None, help='Override API base URL (default: http://64.247.196.8:8000)')
     parser.add_argument('--output', type=str, default='generated_image.png', help='Output file name')
     args = parser.parse_args()
 
-    BASE_URL = args.api_url or "http://64.247.196.8:8000"
+    BASE_URL = args.api_url or "http://64.247.196.41:8000"
     MODE = args.mode
     API_URL = f"{BASE_URL}/{MODE}"
 
@@ -106,7 +107,7 @@ def main():
             "image_base64": img_b64,
             "mask_base64": mask_b64,
             "prompt": args.edit_prompt,
-            "task": "inpainting",
+            "task": args.task,  # Empty string by default, allows ACE to determine best task
             "negative_prompt": "",
             "output_height": 512,
             "output_width": 512,
